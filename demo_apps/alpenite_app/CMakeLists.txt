@@ -3,6 +3,7 @@ project(alpine-renderer-alpenite_app LANGUAGES C CXX)
 set(SOURCES
     main.cpp
     Renderer.cpp
+    AlpUtils.h
 )
 
 qt_add_executable(alpenite_app
