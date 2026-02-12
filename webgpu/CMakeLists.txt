@@ -22,7 +22,7 @@ project(alpine-renderer-webgpu LANGUAGES C CXX)
 # NOTE: The idea behind this target is to accumulate all the webgpu related things that are platform
 # dependent such that we only have the webgpu cmake target for the other projects to link against.
 
-set(ALP_DAWN_VERSION "20251204.180718") # Version of Dawn to download (see https://github.com/google/dawn/releases)
+set(ALP_DAWN_VERSION "20260208.075604") # Version of Dawn to download (see https://github.com/google/dawn/releases)
 set(ALP_DAWN_DIR "${CMAKE_SOURCE_DIR}/${ALP_EXTERN_DIR}/dawn")
 set(ALP_SDL_INSTALL_DIR "${CMAKE_SOURCE_DIR}/${ALP_EXTERN_DIR}/sdl")
 set(ALP_DAWN_PORT_DIR "${CMAKE_SOURCE_DIR}/${ALP_EXTERN_DIR}/emdawnwebgpu_pkg/emdawnwebgpu.port.py")

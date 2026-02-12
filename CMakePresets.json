@@ -42,6 +42,16 @@
       }
     },
     {
+      "name": "msvc-debug-alpenite",
+      "displayName": "MSVC Debug Alpenite (Windows)",
+      "description": "Alpenite Debug build using MSVC compiler",
+      "inherits": "msvc-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "/DQT_DEBUG"
+      }
+    },
+    {
       "name": "msvc-release",
       "displayName": "MSVC Release (Windows)",
       "description": "Release build using MSVC compiler",
@@ -141,6 +151,10 @@
     {
       "name": "wasm-publish",
       "configurePreset": "wasm-publish"
+    },
+    {
+      "name": "msvc-debug-alpenite",
+      "configurePreset": "msvc-debug-alpenite"
     }
   ]
 }
