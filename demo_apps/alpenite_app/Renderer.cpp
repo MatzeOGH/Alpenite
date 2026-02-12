@@ -3,6 +3,8 @@
 #include <QCoreApplication>
 #include "webgpu/webgpu_interface.hpp"
 
+#include "AlpUtils.h"
+
 WGPUInstance gInstance{};
 WGPUAdapter gAdapter{};
 WGPUDevice gDevice{};
@@ -160,7 +162,7 @@ void drawFrame()
 
     if(surfaceTexture.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal)
     {
-        qFatal("surface not readyr");
+        //qFatal("surface not ready");
         return;// TODO: handle resize / lost surface
     }
     qInfo("Frame Index %d", frameIndex);
@@ -204,14 +206,32 @@ void drawFrame()
     wgpuTextureViewRelease(view);
     wgpuCommandBufferRelease(cmd);
     wgpuCommandEncoderRelease(encoder);
+}
 
+void shutdownBacken()
+{
+    wgpuSurfaceUnconfigure(gSurface);
+    wgpuQueueRelease(gQueue);
+    wgpuSurfaceRelease(gSurface);
+    wgpuDeviceRelease(gDevice);
+    wgpuAdapterRelease(gAdapter);
+    wgpuInstanceRelease(gInstance);
 }
 
 void OnDeviceLost(WGPUDeviceLostReason reason, char const* message, void* userdata)
 {
-    /*
-    qError() << "Device lost! Reason: " << reason << "\n";
+    const char* deviceLostReasons[] =
+        {
+            "NULL", // invalid index
+            "Unknown",
+            "Destroyed",
+            "CallbackCancelled",
+            "FailedCreatio",
+        };
+
+    int idx = reason > countOf(deviceLostReasons) ? countOf(deviceLostReasons) : reason;
+    qCritical("Device lost! Reason: %s\n", deviceLostReasons[idx]);
     if (message) {
-        qFatal() << "Message: " << message << "\n";
-    }*/
+        qFatal("Message: %s\n", message);
+    }
 }

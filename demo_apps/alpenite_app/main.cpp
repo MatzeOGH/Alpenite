@@ -7,6 +7,7 @@
 
 bool initWebGPUBackend(SDL_Window* window);
 void drawFrame();
+void shutdownBacken();
 
 // main entry for all platforms (WIN32 and WEB)
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
@@ -41,6 +42,9 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
     {
         return -1;
     }
+    defer {
+        shutdownBacken();
+    };
 
     while(true)
     {
@@ -57,6 +61,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
         drawFrame();
 
     }
+
+
 
     return 0;
 }

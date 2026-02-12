@@ -21,3 +21,10 @@ __Deferrer<F> constexpr operator+(__defer, F f) {
 #define ALP_DEFER_2(x, y) ALP_DEFER_1(x, y)
 #define ALP_DEFER_3(x)    ALP_DEFER_2(x, __COUNTER__)
 #define defer [[maybe_unused]] auto ALP_DEFER_3(_defer_) = Alp::__defer{} + [&](void) -> void
+
+
+template <typename T, int N>
+inline constexpr int countOf(const T (&)[N]) noexcept {
+    return N;
+}
+
