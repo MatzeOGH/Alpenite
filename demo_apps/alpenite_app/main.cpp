@@ -1,9 +1,12 @@
 #include <QCoreApplication>
-#include <iostream>
 #include <SDL2/SDL.h>
+#include <webgpu/webgpu.h>
 
 #include "AlpUtils.h"
 
+
+bool initWebGPUBackend(SDL_Window* window);
+void drawFrame();
 
 // main entry for all platforms (WIN32 and WEB)
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
@@ -13,13 +16,13 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
     SDL_SetMainReady();
     if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0) {
         qFatal("Could not initialize SDL2 video subsystem! SDL_Error: %s", SDL_GetError());
+        return -1;
     }
     defer{
-        std::cout << "SDL_Quit\n";
         SDL_Quit();
     };
 
-    auto window = SDL_CreateWindow("Alpenite Appl", // Window title
+    SDL_Window* window = SDL_CreateWindow("Alpenite App", // Window title
         SDL_WINDOWPOS_CENTERED, // Window position x
         SDL_WINDOWPOS_CENTERED, // Window position y
         500, // Window width
@@ -31,9 +34,13 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
         return -1;
     }
     defer{
-        std::cout << "SDL_DestroyWindow\n";
         SDL_DestroyWindow(window);
     };
+
+    if(initWebGPUBackend(window) == false)
+    {
+        return -1;
+    }
 
     while(true)
     {
@@ -46,6 +53,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
                 return 0;
             }
         }
+
+        drawFrame();
 
     }
 
