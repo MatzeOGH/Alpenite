@@ -2,8 +2,12 @@ project(alpine-renderer-alpenite_app LANGUAGES C CXX)
 
 set(SOURCES
     main.cpp
+    Renderer.h
     Renderer.cpp
+    FrameworkSubsystem.h # needed for QTs moc
+    Framework.cpp
     AlpUtils.h
+    ClusteredMesh.cpp
 )
 
 qt_add_executable(alpenite_app
@@ -15,7 +19,7 @@ set_target_properties(alpenite_app PROPERTIES
     MACOSX_BUNDLE TRUE
 )
 
-target_link_libraries(alpenite_app PUBLIC webgpu)
+target_link_libraries(alpenite_app PUBLIC webgpu Qt::Core)
 target_include_directories(alpenite_app PRIVATE .)
 
 # Copy necessary DLLs to the output directory on Windows

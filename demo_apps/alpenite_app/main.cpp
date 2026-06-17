@@ -3,66 +3,42 @@
 #include <webgpu/webgpu.h>
 
 #include "AlpUtils.h"
-
+#include "FrameworkSubsystem.h"
+#include "Renderer.h"
 
 bool initWebGPUBackend(SDL_Window* window);
-void drawFrame();
+void drawFrame(int32_t x, int32_t y);
 void shutdownBacken();
+void resize(uint32_t x, uint32_t y);
+
 
 // main entry for all platforms (WIN32 and WEB)
-int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
+int main(int argc, char* argv[])
 {
-    QCoreApplication app(argc, argv);
+    Framework framework(argc, argv);
+    if(framework.init() == false) {
+        return -1;
+    }
 
-    SDL_SetMainReady();
-    if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0) {
-        qFatal("Could not initialize SDL2 video subsystem! SDL_Error: %s", SDL_GetError());
+    uint32_t width = 1024;
+    uint32_t height = 768;
+
+    auto window = framework.createWindow("Alpenite", width, height);
+    if(window.isValid() == false){
         return -1;
     }
     defer{
-        SDL_Quit();
+        framework.closeWindow(window);
     };
 
-    SDL_Window* window = SDL_CreateWindow("Alpenite App", // Window title
-        SDL_WINDOWPOS_CENTERED, // Window position x
-        SDL_WINDOWPOS_CENTERED, // Window position y
-        500, // Window width
-        500, // Window height
-        SDL_WINDOW_RESIZABLE); // SDL_WINDOW_VULKAN
-
-    if (!window) {
-        qFatal("Could not create SDL window! SDL_Error: %s", SDL_GetError());
-        return -1;
-    }
-    defer{
-        SDL_DestroyWindow(window);
-    };
-
-    if(initWebGPUBackend(window) == false)
-    {
-        return -1;
-    }
     defer {
         shutdownBacken();
     };
 
-    while(true)
-    {
-        QCoreApplication::processEvents();
-        SDL_Event event;
-        while(SDL_PollEvent(&event))
-        {
-            if(event.type == SDL_QUIT)
-            {
-                return 0;
-            }
-        }
+    // WebGPU device is ready after createWindow — load mesh and set up clustered rendering
+    loadMeshForRendering("C:/Users/matth/Documents/Aurora/Aurora/assets/roman_stone_capital_high/Roman_Stone_Capital_tfpvdgeda_High.gltf");
 
-        drawFrame();
-
-    }
-
-
-
+    framework.run();
+    
     return 0;
 }
