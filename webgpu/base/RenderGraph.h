@@ -321,4 +321,7 @@ RenderGraph* start_recording(GraphAllocator* allocator);
 // Frame boundary
 void end_frame(GraphAllocator* allocator);
 
-} // namespace RG
+} // namespace webgpu
+
+// exposes the operator overload outside of the namespace
+using webgpu::operator""_rid;
