@@ -234,32 +234,31 @@ void App::render()
 
 
     rg->add_pass("imgui"_rid, webgpu::PassKind::Graphics,
-        [swapchain](webgpu::PassBuilder& b)
+        [swapchain](auto& b)
         {
             b.color(swapchain, WGPULoadOp_Load, WGPUStoreOp_Store);
         },
-        [&](webgpu::PassContext& c)
+        [&](auto& c)
         {
             //webgpu::raii::RenderPassEncoder render_pass(encoder, surface_texture_view, nullptr);
-            wgpuRenderPassEncoderSetPipeline(c.render, m_gui_pipeline.get()->pipeline().handle());
-            wgpuRenderPassEncoderSetBindGroup(c.render, 0, m_gui_bind_group->handle(), 0, nullptr);
-            wgpuRenderPassEncoderDraw(c.render, 3, 1, 0, 0);
+            wgpuRenderPassEncoderSetPipeline(c.render_pass, m_gui_pipeline.get()->pipeline().handle());
+            wgpuRenderPassEncoderSetBindGroup(c.render_pass, 0, m_gui_bind_group->handle(), 0, nullptr);
+            wgpuRenderPassEncoderDraw(c.render_pass, 3, 1, 0, 0);
 
             // We add the GUI drawing commands to the render pass
-            m_gui_manager->render(c.render);
+            m_gui_manager->render(c.render_pass);
         }
     );
-
 
     // compile the finished graph
     rg->compile();
 
     if(rg->get_errors())
     {
-        // HANDLE ERRORS
+        // TODO: HANDLE ERRORS
     }
 
-    rg->execute(m_device, encoder, {});
+    rg->execute(m_device, encoder, {}, false);
 
 
     if (webgpu::isTimingSupported())

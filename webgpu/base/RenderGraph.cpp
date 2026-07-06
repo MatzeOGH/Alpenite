@@ -2339,10 +2339,10 @@ void RenderGraph::execute(WGPUDevice device, WGPUCommandEncoder encoder, WGPUQue
 
         if (p->kind == PassKind::Compute && p->exec_fn) {
             WGPUComputePassDescriptor cd { .label = p->id.name, .timestampWrites = timeThis ? &tw : nullptr };
-            ctx.compute = wgpuCommandEncoderBeginComputePass(encoder, &cd);
+            ctx.compute_pass = wgpuCommandEncoderBeginComputePass(encoder, &cd);
             p->exec_fn(p->exec_obj, ctx);
-            wgpuComputePassEncoderEnd(ctx.compute);
-            wgpuComputePassEncoderRelease(ctx.compute);
+            wgpuComputePassEncoderEnd(ctx.compute_pass);
+            wgpuComputePassEncoderRelease(ctx.compute_pass);
         } else if (p->kind == PassKind::Graphics && p->exec_fn) {
             // gather declared attachments from the access list -> WebGPU render pass descriptor
             WGPURenderPassColorAttachment color[kMaxColorAttachments] {};
@@ -2403,10 +2403,10 @@ void RenderGraph::execute(WGPUDevice device, WGPUCommandEncoder encoder, WGPUQue
                 .depthStencilAttachment = hasDepth ? &depth : nullptr,
                 .timestampWrites = timeThis ? &tw : nullptr,
             };
-            ctx.render = wgpuCommandEncoderBeginRenderPass(encoder, &rd);
+            ctx.render_pass = wgpuCommandEncoderBeginRenderPass(encoder, &rd);
             p->exec_fn(p->exec_obj, ctx);
-            wgpuRenderPassEncoderEnd(ctx.render);
-            wgpuRenderPassEncoderRelease(ctx.render);
+            wgpuRenderPassEncoderEnd(ctx.render_pass);
+            wgpuRenderPassEncoderRelease(ctx.render_pass);
         } else { // Transfer: body records straight onto the encoder. no pass object -> bracket with encoder timestamps.
             if (p->exec_fn) {
 #ifdef RG_TIME_TRANSFER_PASSES // off-spec: the device must be created with the allow_unsafe_apis toggle
