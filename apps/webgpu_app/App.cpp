@@ -210,22 +210,17 @@ void App::render()
         qFatal("Cannot acquire next surface texture");
     }
 
+    // BEGIN of render graph frame
     webgpu::begin_frame(m_context->graph_allocator);
     webgpu::RenderGraph* rg = webgpu::start_recording(m_context->graph_allocator);
-
-    rg->compile();
-
-    // Hand the compiled graph to the debug panel. end_frame() below only rotates pools, not the arena
-    // (that resets on the next begin_frame), so these nodes stay valid through the GUI render pass.
     m_gui_manager->set_render_graph(rg);
+
+    // import the swapchain texture as an extern dependency
+    auto swapchain = rg->importe_texture( "swapchain"_rid , surface_texture_view, {m_viewport_size.x, m_viewport_size.y, 1}, viewDescriptor.format);
 
     WGPUCommandEncoderDescriptor command_encoder_desc {};
     command_encoder_desc.label = WGPUStringView { .data = "Command Encoder", .length = WGPU_STRLEN };
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(m_device, &command_encoder_desc);
-
-    // rg->execute();
-
-    webgpu::end_frame(m_context->graph_allocator);
 
     if (webgpu::isTimingSupported())
         m_gputimer->start(encoder);
@@ -237,15 +232,35 @@ void App::render()
         m_force_repaint_once = false;
     }
 
-    {
-        webgpu::raii::RenderPassEncoder render_pass(encoder, surface_texture_view, nullptr);
-        wgpuRenderPassEncoderSetPipeline(render_pass.handle(), m_gui_pipeline.get()->pipeline().handle());
-        wgpuRenderPassEncoderSetBindGroup(render_pass.handle(), 0, m_gui_bind_group->handle(), 0, nullptr);
-        wgpuRenderPassEncoderDraw(render_pass.handle(), 3, 1, 0, 0);
 
-        // We add the GUI drawing commands to the render pass
-        m_gui_manager->render(render_pass.handle());
+    rg->add_pass("imgui"_rid, webgpu::PassKind::Graphics,
+        [swapchain](webgpu::PassBuilder& b)
+        {
+            b.color(swapchain, WGPULoadOp_Load, WGPUStoreOp_Store);
+        },
+        [&](webgpu::PassContext& c)
+        {
+            //webgpu::raii::RenderPassEncoder render_pass(encoder, surface_texture_view, nullptr);
+            wgpuRenderPassEncoderSetPipeline(c.render, m_gui_pipeline.get()->pipeline().handle());
+            wgpuRenderPassEncoderSetBindGroup(c.render, 0, m_gui_bind_group->handle(), 0, nullptr);
+            wgpuRenderPassEncoderDraw(c.render, 3, 1, 0, 0);
+
+            // We add the GUI drawing commands to the render pass
+            m_gui_manager->render(c.render);
+        }
+    );
+
+
+    // compile the finished graph
+    rg->compile();
+
+    if(rg->get_errors())
+    {
+        // HANDLE ERRORS
     }
+
+    rg->execute(m_device, encoder, {});
+
 
     if (webgpu::isTimingSupported())
         m_gputimer->stop(encoder);
@@ -263,6 +278,9 @@ void App::render()
         m_gputimer->resolve();
 
     m_cputimer->stop();
+
+    // end the frame
+    webgpu::end_frame(m_context->graph_allocator);
 
 #ifndef __EMSCRIPTEN__
     // Surface present in the WEB is handled by the browser!
