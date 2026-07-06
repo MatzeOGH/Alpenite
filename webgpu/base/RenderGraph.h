@@ -84,8 +84,8 @@ struct ErrorMessage {
 // Pass body gets this during execute(). Resolves handles to GPU objects and holds the encoders.
 struct PassContext {
     WGPUCommandEncoder encoder {}; // forwarded encode. not owned by the graph
-    WGPURenderPassEncoder render {}; // set for Graphics passes otherwise null
-    WGPUComputePassEncoder compute {}; // set for Compute passes otherwise null
+    WGPURenderPassEncoder render_pass {}; // set for Graphics passes otherwise null
+    WGPUComputePassEncoder compute_pass {}; // set for Compute passes otherwise null
     WGPUQueue queue {}; // forwarded queue. not owned by the graph
     RenderGraph* graph {}; // not access directly
     Internal::PassNode* pass {}; // dont access directly
