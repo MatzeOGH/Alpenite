@@ -258,7 +258,7 @@ void App::render()
         // TODO: HANDLE ERRORS
     }
 
-    rg->execute(m_device, encoder, m_queue, webgpu::isTimingSupported());
+    rg->execute(m_device, encoder, m_queue, false);
     rg->collect_gpu_timings();
 
     if (webgpu::isTimingSupported())
