@@ -203,7 +203,7 @@ void ImGuiManager::render([[maybe_unused]] WGPURenderPassEncoder renderPass)
     ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), renderPass);
 }
 
-void ImGuiManager::set_render_graph(RG::RenderGraph* graph)
+void ImGuiManager::set_render_graph(webgpu::RenderGraph* graph)
 {
     if (m_render_graph_panel)
         m_render_graph_panel->set_graph(graph);

@@ -15,7 +15,7 @@
 #include <QtAssert>
 #include <webgpu/webgpu.h>
 
-namespace RG {
+namespace webgpu {
 
 enum struct PassKind : uint8_t { None = 0, Graphics, Compute, Transfer };
 

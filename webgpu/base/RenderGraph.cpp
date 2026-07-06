@@ -22,7 +22,7 @@ EM_JS(int, rg_web_has_transient_attachment, (), { return (typeof GPUTextureUsage
 
 #include "RenderGraph_internal.h"
 
-namespace RG {
+namespace webgpu {
 
 // The internal node/pool/helper layout now lives in RG::Internal (RenderGraph_internal.h). Pull it in
 // unqualified so the file-static helpers and RenderGraph:: methods below keep resolving it as before.

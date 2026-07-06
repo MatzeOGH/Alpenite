@@ -20,27 +20,24 @@
 
 #include "ImGuiPanel.h"
 
-namespace RG {
+namespace webgpu {
 struct RenderGraph;
 }
 
 namespace webgpu_app {
 
 // Debug view of a compiled RenderGraph: dependency DAG, resource lifetimes, transient pool and per-pass
-// GPU timings. Reads the graph's internal node structs via RenderGraph_internal.h, so it lives in the app
-// where ImGui is available rather than in the imgui-free base library.
+// GPU timings
 class RenderGraphPanel : public ImGuiPanel {
 public:
-    // The graph is rebuilt every frame and its nodes live in a per-frame arena. Hand the panel the live
-    // graph after execute() and before end_frame() (which resets the arena and invalidates the nodes).
-    // Passing nullptr hides the window.
-    void set_graph(RG::RenderGraph* graph) { m_graph = graph; }
+
+    void set_graph(webgpu::RenderGraph* graph) { m_graph = graph; }
 
     // Standalone window, drawn outside the sidebar block.
     void draw() override;
 
 private:
-    RG::RenderGraph* m_graph = nullptr;
+    webgpu::RenderGraph* m_graph = nullptr;
 };
 
 } // namespace webgpu_app

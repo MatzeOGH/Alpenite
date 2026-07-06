@@ -21,7 +21,7 @@
 
 #include "RenderGraph.h"
 
-namespace RG::Internal {
+namespace webgpu::Internal {
 
 // TransientAttachments feature id from the gpuweb transient-attachments proposal, a Dawn-native
 // feature 0x00050006. The native headers name it, but the emdawnwebgpu web headers ship the usage
@@ -404,9 +404,9 @@ struct Arena {
 };
 
 
-} // namespace RG::Internal
+} // namespace webgpu::Internal
 
-namespace RG {
+namespace webgpu {
 
 // GraphAllocator is the public opaque handle (RG::GraphAllocator), so it stays in namespace RG. Its
 // member pools/arenas live in RG::Internal, so reference them qualified.
@@ -441,7 +441,7 @@ struct GraphAllocator {
 
 } // namespace RG
 
-namespace RG::Internal {
+namespace webgpu::Internal {
 
 // RAII scratch scope
 struct ScopedScratch {
@@ -665,4 +665,4 @@ uint32_t texel_bytes(WGPUTextureFormat f);
 // bytes one texture of this size+format would occupy, base mip only since aliasing members are single-mip.
 uint64_t texture_bytes(WGPUExtent3D size, WGPUTextureFormat format);
 
-} // namespace RG::Internal
+} // namespace webgpu::Internal

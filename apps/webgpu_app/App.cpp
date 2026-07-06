@@ -210,8 +210,8 @@ void App::render()
         qFatal("Cannot acquire next surface texture");
     }
 
-    RG::begin_frame(m_context->graph_allocator);
-    RG::RenderGraph* rg = RG::start_recording(m_context->graph_allocator);
+    webgpu::begin_frame(m_context->graph_allocator);
+    webgpu::RenderGraph* rg = webgpu::start_recording(m_context->graph_allocator);
 
     rg->compile();
 
@@ -225,7 +225,7 @@ void App::render()
 
     // rg->execute();
 
-    RG::end_frame(m_context->graph_allocator);
+    webgpu::end_frame(m_context->graph_allocator);
 
     if (webgpu::isTimingSupported())
         m_gputimer->start(encoder);

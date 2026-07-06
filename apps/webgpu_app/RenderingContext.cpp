@@ -179,7 +179,7 @@ void RenderingContext::initialize(webgpu::Context& ctx)
         "OverlayRenderNode", [ctx = m_engine_context.get()](webgpu::Context&) { return std::make_unique<webgpu_compute::nodes::OverlayRenderNode>(*ctx); });
 #endif
 
-    graph_allocator = RG::create_allocator();
+    graph_allocator = webgpu::create_allocator();
 
     nucleus::utils::thread::async_call(this, [this]() { emit this->initialised(); });
 }
@@ -187,7 +187,7 @@ void RenderingContext::initialize(webgpu::Context& ctx)
 void RenderingContext::destroy()
 {
     if (graph_allocator) {
-        RG::destroy_allocator(graph_allocator);
+        webgpu::destroy_allocator(graph_allocator);
         graph_allocator = nullptr;
     }
     if (!m_geometry_scheduler_holder.scheduler)

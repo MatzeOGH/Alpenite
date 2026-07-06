@@ -18,6 +18,8 @@
 
 #include "RenderGraphPanel.h"
 
+#include "ImGuiManager.h"
+#include <IconsFontAwesome5.h>
 #include <imgui.h>
 
 #include <cmath>
@@ -26,15 +28,11 @@
 
 #include "webgpu/base/RenderGraph_internal.h"
 
-// The RenderGraph debug widget, ported from the standalone smoke test. Everything below reads the graph
-// node structs and helpers in namespace RG, made visible by RenderGraph_internal.h. The functions are
-// file local; RenderGraphPanel::draw at the bottom builds the window and drives them.
-using namespace RG;
-using namespace RG::Internal;
 
-// This widget is a near-verbatim port of the standalone debug tool. It keeps that code's tight local
-// scoping (short reused names like s and anc) and a couple of C string calls, which MSVC flags at /W4.
-// Suppress those stylistic warnings for the ported body rather than rewriting it; real logic is unchanged.
+using namespace webgpu;
+using namespace webgpu::Internal;
+
+
 #if defined(_MSC_VER)
 #pragma warning(push)
 #pragma warning(disable : 4456 4457 4100 4189 4505 4996)
@@ -2637,10 +2635,19 @@ namespace webgpu_app {
 
 void RenderGraphPanel::draw()
 {
+    static uint32_t render_gaph_enabled = 0;
+    if(ImGuiManager::FloatingToggleButton("ToggleRenderGraphButton", ICON_FA_PROJECT_DIAGRAM, "RenderGraph", &render_gaph_enabled))
+    {
+        render_gaph_enabled &= 1;
+    }
+
+    if(render_gaph_enabled == 0)
+        return;
+
     if (!m_graph)
         return;
 
-    RG::RenderGraph* rg = m_graph;
+    webgpu::RenderGraph* rg = m_graph;
     RenderGraphStorage& s = *storage(rg);
 
     // append a history column each frame the window draws, independent of which tab is open.
@@ -2696,6 +2703,8 @@ void RenderGraphPanel::draw()
         ImGui::EndTabBar();
     }
     ImGui::End();
+
+    m_graph = nullptr; // set to nullptr because the render graph is only valid for 0 frame
 }
 
 } // namespace webgpu_app
