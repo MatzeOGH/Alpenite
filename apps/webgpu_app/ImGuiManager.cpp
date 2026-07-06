@@ -41,6 +41,7 @@
 #include "ui/CameraPanel.h"
 #include "ui/CompassPanel.h"
 #include "ui/LogoPanel.h"
+#include "ui/RenderGraphPanel.h"
 #include "ui/SearchPanel.h"
 #include "ui/ShadingPanel.h"
 #include "ui/TimingPanel.h"
@@ -107,6 +108,10 @@ void ImGuiManager::init(
     m_panels.push_back(std::make_unique<NodeGraphPanel>(engine_ctx));
 #endif
     m_panels.push_back(std::make_unique<OverlaysPanel>(engine_ctx));
+
+    auto render_graph_panel = std::make_unique<RenderGraphPanel>();
+    m_render_graph_panel = render_graph_panel.get();
+    m_panels.push_back(std::move(render_graph_panel));
 
     connect(&search_panel, &SearchPanel::search_requested, rc->search_service(), &SearchService::search);
     connect(&search_panel,
@@ -196,6 +201,12 @@ void ImGuiManager::render([[maybe_unused]] WGPURenderPassEncoder renderPass)
 
     ImGui::Render();
     ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), renderPass);
+}
+
+void ImGuiManager::set_render_graph(RG::RenderGraph* graph)
+{
+    if (m_render_graph_panel)
+        m_render_graph_panel->set_graph(graph);
 }
 
 void ImGuiManager::shutdown()

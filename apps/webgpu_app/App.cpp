@@ -49,6 +49,7 @@
 #include <nucleus/timing/CpuTimer.h>
 #include <webgpu/engine/Context.h>
 #include <webgpu/engine/tile_mesh/TileMeshRenderer.h>
+#include "webgpu/base/RenderGraph.h"
 
 namespace webgpu_app {
 
@@ -209,9 +210,22 @@ void App::render()
         qFatal("Cannot acquire next surface texture");
     }
 
+    RG::begin_frame(m_context->graph_allocator);
+    RG::RenderGraph* rg = RG::start_recording(m_context->graph_allocator);
+
+    rg->compile();
+
+    // Hand the compiled graph to the debug panel. end_frame() below only rotates pools, not the arena
+    // (that resets on the next begin_frame), so these nodes stay valid through the GUI render pass.
+    m_gui_manager->set_render_graph(rg);
+
     WGPUCommandEncoderDescriptor command_encoder_desc {};
     command_encoder_desc.label = WGPUStringView { .data = "Command Encoder", .length = WGPU_STRLEN };
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(m_device, &command_encoder_desc);
+
+    // rg->execute();
+
+    RG::end_frame(m_context->graph_allocator);
 
     if (webgpu::isTimingSupported())
         m_gputimer->start(encoder);
