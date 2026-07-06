@@ -30,9 +30,14 @@ struct ImFont;
 
 #include "ui/ImGuiPanel.h"
 
+namespace RG {
+struct RenderGraph;
+}
+
 namespace webgpu_app {
 
 class App;
+class RenderGraphPanel;
 
 class ImGuiManager : public QObject {
     Q_OBJECT
@@ -43,6 +48,10 @@ public:
     void ready();
     void render(WGPURenderPassEncoder renderPass);
     void shutdown();
+
+    // Hand the RenderGraph debug panel this frame's graph. Call after compile(), before render().
+    // The graph's nodes stay valid until the next begin_frame(), so it is safe to read while drawing.
+    void set_render_graph(RG::RenderGraph* graph);
 
     bool want_capture_keyboard();
     bool want_capture_mouse();
@@ -97,6 +106,7 @@ private:
     bool m_gui_visible = true;
 
     std::vector<std::unique_ptr<ImGuiPanel>> m_panels;
+    RenderGraphPanel* m_render_graph_panel = nullptr; // owned by m_panels; borrowed here to forward the graph
 
     void draw();
     void install_fonts();
