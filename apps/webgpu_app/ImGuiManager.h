@@ -30,7 +30,7 @@ struct ImFont;
 
 #include "ui/ImGuiPanel.h"
 
-namespace RG {
+namespace webgpu {
 struct RenderGraph;
 }
 
@@ -51,7 +51,7 @@ public:
 
     // Hand the RenderGraph debug panel this frame's graph. Call after compile(), before render().
     // The graph's nodes stay valid until the next begin_frame(), so it is safe to read while drawing.
-    void set_render_graph(RG::RenderGraph* graph);
+    void set_render_graph(webgpu::RenderGraph* graph);
 
     bool want_capture_keyboard();
     bool want_capture_mouse();
