@@ -253,9 +253,9 @@ void App::render()
     // compile the finished graph
     rg->compile();
 
-    if(rg->get_errors())
+    for(webgpu::ErrorMessage* error = rg->get_errors(); error; error = error->next)
     {
-        // TODO: HANDLE ERRORS
+        qCritical("%.*s", error->message.length, error->message.data);
     }
 
     rg->execute(m_device, encoder, m_queue, false);

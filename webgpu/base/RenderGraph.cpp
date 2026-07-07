@@ -24,13 +24,9 @@ EM_JS(int, rg_web_has_transient_attachment, (), { return (typeof GPUTextureUsage
 
 namespace webgpu {
 
-// The internal node/pool/helper layout now lives in RG::Internal (RenderGraph_internal.h). Pull it in
-// unqualified so the file-static helpers and RenderGraph:: methods below keep resolving it as before.
+
 using namespace Internal;
 
-
-// Out-of-line definitions for the declarations that RenderGraph_internal.h no longer inlines. Kept in
-// one block so the header stays a pure layout/declaration surface shared with the debug tooling.
 namespace Internal {
 
 size_t sv_length(WGPUStringView s) { return (s.length == WGPU_STRLEN) ? (s.data ? std::strlen(s.data) : 0) : s.length; }
@@ -835,12 +831,10 @@ static constexpr bool in_pass_accesses_conflict(AccessType a,
 
 static void validate_texture_desc(const TextureDesc& desc)
 {
+    Q_ASSERT(desc.dimension != WGPUTextureDimension_1D && "The render graph does not support 1d textures, use 2d textures instead");
     Q_ASSERT(desc.relativeTo.id == 0 || (desc.scaleX > 0.0f && desc.scaleY > 0.0f) && "When relative to another texture it cannot be a scale of 0");
-
-    // MSAA constraints
     Q_ASSERT(desc.sampleCount == 1 || desc.sampleCount == 4 && "WebGPU(1.0) only supports MSAA samples of 1 or 4.");
     Q_ASSERT(desc.dimension != WGPUTextureDimension_3D || desc.sampleCount == 1 && "Texture3D does not support MSAA");
-
     Q_ASSERT(desc.dimension != WGPUTextureDimension_3D || desc.mipLevelCount == 1 && "Texture3D only supports mipLevelCount of 1");
 }
 
@@ -1420,7 +1414,7 @@ void RenderGraph::compile(bool enableAlias)
             const ResourceAccess& a = p->accesses[i];
             predTexUsage[a.handle.id] |= tex_usage_of(a.type);
             predBufUsage[a.handle.id] |= buf_usage_of(a.type);
-            hasWriter[a.handle.id] = access_is_write(a.type);
+            hasWriter[a.handle.id] |= access_is_write(a.type); // OR: any declared write, not just the last access to id
         }
 
     // phase 0: skip up-to-date bake passes. An initialize() pass rebakes a persistent target; skip it
@@ -1530,11 +1524,13 @@ void RenderGraph::compile(bool enableAlias)
     }
 
     // post-cull validation. Over the FINAL schedule (m_passes is now culled + in execution order), a read
-    // of a TRANSIENT resource that no earlier pass has produced is an authoring error: the reader would
-    // sample uninitialized contents (its writer was declared after it, or culled). Walking the surviving
-    // passes makes this culling-correct and catches every surviving reader, not just the first.
-    //   imported + history/persistent resources  -> exempt (their value comes from outside this frame).
-    //   resources with no writer at all (e.g. a host-uploaded uniform) -> exempt (hasWriter stays false).
+    // of a TRANSIENT (graph-owned) resource that no earlier surviving pass has produced is an authoring
+    // error: the reader samples uninitialized pool contents. Two shapes, both caught here:
+    //   - a writer exists but is scheduled after the reader, or was culled -> read-before-write.
+    //   - no pass writes it at all (hasWriter false)                       -> transient never written.
+    // Walking the surviving passes makes this culling-correct and catches every surviving reader.
+    //   imported + history/persistent resources -> exempt (their value comes from outside this frame; those
+    //   are the "host-uploaded" case, and is_external() below already skips them before hasWriter matters).
     // bail before phase 3 so the caller never realize()/execute()s a misordered graph.
     {
         // hasWriter (from the pre-cull walk above): some DECLARED pass writes id, culled or not.
@@ -1571,19 +1567,57 @@ void RenderGraph::compile(bool enableAlias)
                     }
                     continue;
                 }
-                if (id == 0 || external[id] || produced[id] || !hasWriter[id])
+                if (id == 0 || external[id] || produced[id])
                     continue;
                 ResourceNode* r = find_node(this, p->accesses[i].handle);
                 WGPUStringView rn = r ? r->id.name : WGPUStringView {};
-                push_error(s,
-                    "pass \"%.*s\" reads resource \"%.*s\" before any pass "
-                    "writes it; declare a writer of \"%.*s\" first.",
-                    (int)p->id.name.length,
-                    p->id.name.data ? p->id.name.data : "",
-                    (int)rn.length,
-                    rn.data ? rn.data : "",
-                    (int)rn.length,
-                    rn.data ? rn.data : "");
+                if (!hasWriter[id])
+                    // transient that no pass ever writes: no content source at all, so the read hits an
+                    // uninitialized pool object. distinct from read-before-write (a writer exists, just
+                    // ordered after / culled), which keeps the message below.
+                    push_error(s,
+                        "pass \"%.*s\" reads transient resource \"%.*s\" that no pass ever writes; "
+                        "a transient starts uninitialized, so write \"%.*s\" before reading it.",
+                        (int)p->id.name.length,
+                        p->id.name.data ? p->id.name.data : "",
+                        (int)rn.length,
+                        rn.data ? rn.data : "",
+                        (int)rn.length,
+                        rn.data ? rn.data : "");
+                else {
+                    // hasWriter true but not produced. If THIS pass also writes id, it's an in-place
+                    // read_write (storage_read_write): the same-pass write can't seed the read (dispatch
+                    // invocations are unordered, so the read sees pre-pass, uninitialized contents). Name that
+                    // case; "declare a writer first" misleads when the pass visibly writes id. Otherwise a
+                    // real writer exists but lands later / was culled -> plain read-before-write.
+                    bool samePassWrite = false;
+                    for (uint32_t j = 0; j < p->accessCount; ++j)
+                        if (p->accesses[j].handle.id == id && access_is_write(p->accesses[j].type)) {
+                            samePassWrite = true;
+                            break;
+                        }
+                    if (samePassWrite)
+                        push_error(s,
+                            "pass \"%.*s\" read-modify-writes transient resource \"%.*s\" that no earlier pass "
+                            "produced; the same-pass write can't seed the read (it sees uninitialized contents). "
+                            "Write \"%.*s\" in an earlier pass, or use storage_write if the shader is write-only.",
+                            (int)p->id.name.length,
+                            p->id.name.data ? p->id.name.data : "",
+                            (int)rn.length,
+                            rn.data ? rn.data : "",
+                            (int)rn.length,
+                            rn.data ? rn.data : "");
+                    else
+                        push_error(s,
+                            "pass \"%.*s\" reads resource \"%.*s\" before any pass "
+                            "writes it; declare a writer of \"%.*s\" first.",
+                            (int)p->id.name.length,
+                            p->id.name.data ? p->id.name.data : "",
+                            (int)rn.length,
+                            rn.data ? rn.data : "",
+                            (int)rn.length,
+                            rn.data ? rn.data : "");
+                }
                 hadError = true;
             }
         if (hadError)
