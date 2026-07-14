@@ -30,7 +30,8 @@
 
 
 using namespace webgpu;
-using namespace webgpu::Internal;
+using namespace webgpu::rg;
+using namespace webgpu::rg::Internal;
 
 
 #if defined(_MSC_VER)
@@ -2185,13 +2186,13 @@ static void rg_draw_memory(RenderGraphStorage& s)
     TransientResourcePool&  tp   = s.m_allocator->transient;
     PersistentResourcePool& pool = s.m_allocator->pool;
 
-    // transient pool: textures + buffers in one descriptor-keyed cache, tagged by Entry::isBuffer. one
+    // transient pool: textures + buffers in one descriptor-keyed cache, tagged by Entry::kind. one
     // physical object per entry; idle ones retained kRetain frames. tally each kind (held includes idle).
     int held = 0, inUse = 0, texHeld = 0, bufHeld = 0;
     uint64_t texBytes = 0, texInUseBytes = 0, bufBytes = 0, bufInUseBytes = 0;
     for (const TransientResourcePool::Entry& e : tp.entries) {
         ++held; if (e.inUse) ++inUse;
-        if (e.isBuffer) { ++bufHeld; bufBytes += e.bufferSize; if (e.inUse) bufInUseBytes += e.bufferSize; }
+        if (e.kind == ResourceKind::Buffer) { ++bufHeld; bufBytes += e.bufferSize; if (e.inUse) bufInUseBytes += e.bufferSize; }
         else {
             const uint64_t b = rg_entry_bytes(e);
             ++texHeld; texBytes += b;
@@ -2311,7 +2312,7 @@ static void rg_draw_memory(RenderGraphStorage& s)
         ImGui::TableHeadersRow();
         int idx = 0;
         for (const TransientResourcePool::Entry& e : tp.entries) {
-            if (e.isBuffer) continue;   // buffers listed in their own table below
+            if (e.kind == ResourceKind::Buffer) continue;   // buffers listed in their own table below
             char ub[8]; rg_usage_str(e.usage, ub, sizeof ub);
             const uint64_t eb = rg_entry_bytes(e);
             ImGui::TableNextRow();
@@ -2330,7 +2331,7 @@ static void rg_draw_memory(RenderGraphStorage& s)
         ImGui::EndTable();
     }
 
-    // currently held physical buffers (the buffer arm of the same pool, tagged isBuffer).
+    // currently held physical buffers (the buffer arm of the same pool, tagged kind == Buffer).
     ImGui::Spacing();
     ImGui::TextDisabled("transient buffers");
     if (ImGui::BeginTable("tp_buf", 4, tf)) {
@@ -2341,7 +2342,7 @@ static void rg_draw_memory(RenderGraphStorage& s)
         ImGui::TableHeadersRow();
         bool any = false;
         for (const TransientResourcePool::Entry& e : tp.entries) {
-            if (!e.isBuffer) continue;
+            if (e.kind != ResourceKind::Buffer) continue;
             any = true;
             char ub[12]; rg_buf_usage_str(e.bufUsage, ub, sizeof ub);
             char mb[24]; rg_bytes_str(e.bufferSize, mb, sizeof mb);
@@ -2450,10 +2451,14 @@ static void rg_draw_memory(RenderGraphStorage& s)
     const uint64_t shown = total < TransientResourcePool::kLog ? total : TransientResourcePool::kLog;
     for (uint64_t k = 0; k < shown; ++k) {
         const TransientResourcePool::LogRec& r = tp.eventLog[(total - 1 - k) % TransientResourcePool::kLog];
-        const bool create = r.kind == TransientResourcePool::Event::Create;
-        ImGui::TextColored(create ? ImVec4(0.95f, 0.70f, 0.30f, 1) : ImVec4(0.60f, 0.60f, 0.60f, 1),
-            "f%-6llu  %-6s  %ux%u  %s", (unsigned long long)r.frame, create ? "CREATE" : "evict",
-            r.size.width, r.size.height, rg_format_name(r.format));
+        const bool create = r.event == TransientResourcePool::Event::Create;
+        const ImVec4 col = create ? ImVec4(0.95f, 0.70f, 0.30f, 1) : ImVec4(0.60f, 0.60f, 0.60f, 1);
+        if (r.kind == ResourceKind::Buffer)
+            ImGui::TextColored(col, "f%-6llu  %-6s  buf %llu B", (unsigned long long)r.frame, create ? "CREATE" : "evict",
+                (unsigned long long)r.bufferSize);
+        else
+            ImGui::TextColored(col, "f%-6llu  %-6s  %ux%u  %s", (unsigned long long)r.frame, create ? "CREATE" : "evict",
+                r.size.width, r.size.height, rg_format_name(r.format));
     }
     if (shown == 0) ImGui::TextDisabled("(no events yet)");
     ImGui::EndChild();
@@ -2644,16 +2649,25 @@ void RenderGraphPanel::draw()
     if(render_gaph_enabled == 0)
         return;
 
-    if (!m_graph)
-        return;
+    ImGui::Begin("RenderGraph");
 
-    webgpu::RenderGraph* rg = m_graph;
+    // Keep the toggle reachable whether or not a graph ran this frame, so the user can switch back from the
+    // legacy path (which feeds no graph, leaving m_graph null).
+    ImGui::Checkbox("Drive frame from render graph", &g_use_render_graph);
+    ImGui::Separator();
+
+    if (!m_graph) {
+        ImGui::TextUnformatted("Render graph inactive (legacy render path).");
+        ImGui::End();
+        return;
+    }
+
+    webgpu::rg::RenderGraph* rg = m_graph;
     RenderGraphStorage& s = *storage(rg);
 
     // append a history column each frame the window draws, independent of which tab is open.
     s.m_allocator->profiler.sample_history();
 
-    ImGui::Begin("RenderGraph");
     ImGui::Text(" %1.1f FPS (%1.2f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
     ImGui::Text(" compile %1.0f us  realize %1.0f us  execute %1.0f us", s.timing_compile_us, s.timing_realize_us, s.timing_execute_us);
 

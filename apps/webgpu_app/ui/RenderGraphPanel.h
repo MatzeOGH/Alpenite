@@ -20,24 +20,24 @@
 
 #include "ImGuiPanel.h"
 
-namespace webgpu {
+namespace webgpu::rg {
 struct RenderGraph;
 }
 
 namespace webgpu_app {
 
 // Debug view of a compiled RenderGraph: dependency DAG, resource lifetimes, transient pool and per-pass
-// GPU timings
+// GPU timings. Also hosts the render-graph path toggle (see docs/rendergraph_status.md).
 class RenderGraphPanel : public ImGuiPanel {
 public:
 
-    void set_graph(webgpu::RenderGraph* graph) { m_graph = graph; }
+    void set_graph(webgpu::rg::RenderGraph* graph) { m_graph = graph; }
 
     // Standalone window, drawn outside the sidebar block.
     void draw() override;
 
 private:
-    webgpu::RenderGraph* m_graph = nullptr;
+    webgpu::rg::RenderGraph* m_graph = nullptr;
 };
 
 } // namespace webgpu_app
