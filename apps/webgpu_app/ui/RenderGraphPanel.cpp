@@ -163,7 +163,7 @@ static uint64_t rg_texture_bytes(WGPUExtent3D size, WGPUTextureFormat format, ui
 
 static uint64_t rg_entry_bytes(const TransientResourcePool::Entry& e)
 {
-    return rg_texture_bytes(e.size, e.format, e.mipLevelCount);
+    return rg_texture_bytes(e.sig.size, e.sig.format, e.sig.mipLevelCount);
 }
 
 // byte count -> short human string. NOTE(Huerbe): no GB tier, a transient pool is a few MB.
@@ -1917,7 +1917,7 @@ static void rg_draw_lifetimes(RenderGraph* rg, RenderGraphStorage& s)
     // dedicated, graph-owned allocations, imported/history/dead excluded. the row-count + saved MB are
     // the win; toggle 'alias transients' in Demos and watch the rows collapse.
     auto phBytes = [](const PhysicalResource& ph) -> uint64_t {
-        return ph.kind == ResourceKind::Buffer ? ph.bufferSize : texture_bytes(ph.size, ph.format);
+        return ph.kind == ResourceKind::Buffer ? ph.bufferSize : texture_bytes(ph.sig.size, ph.sig.format);
     };
     if (s.m_slotCount) {
         uint32_t logical = 0; uint64_t logicalBytes = 0, physicalBytes = 0;
@@ -1959,8 +1959,8 @@ static void rg_draw_lifetimes(RenderGraph* rg, RenderGraphStorage& s)
 
     // uniform per-row queries over the two kinds (a slot reads its m_slots entry + ORs its occupants; a solo
     // row is its one resource). keeps the draw + details code identical for aliased and non-aliased.
-    auto rowFmt   = [&](const Row& rw) { return rw.slot >= 0 ? s.m_slots[rw.slot].format   : rw.r->format;   };
-    auto rowSize  = [&](const Row& rw) { return rw.slot >= 0 ? s.m_slots[rw.slot].size     : rw.r->resolved; };
+    auto rowFmt   = [&](const Row& rw) { return rw.slot >= 0 ? s.m_slots[rw.slot].sig.format : rw.r->format;   };
+    auto rowSize  = [&](const Row& rw) { return rw.slot >= 0 ? s.m_slots[rw.slot].sig.size   : rw.r->resolved; };
     auto rowUsage = [&](const Row& rw) { return rw.slot >= 0 ? s.m_slots[rw.slot].texUsage : rw.r->texUsage; };
     auto rowKind  = [&](const Row& rw) { return rw.slot >= 0 ? s.m_slots[rw.slot].kind     : rw.r->kind;     };
     auto rowAccess = [&](const Row& rw, uint32_t c) -> int {
@@ -2190,7 +2190,8 @@ static void rg_draw_memory(RenderGraphStorage& s)
     // physical object per entry; idle ones retained kRetain frames. tally each kind (held includes idle).
     int held = 0, inUse = 0, texHeld = 0, bufHeld = 0;
     uint64_t texBytes = 0, texInUseBytes = 0, bufBytes = 0, bufInUseBytes = 0;
-    for (const TransientResourcePool::Entry& e : tp.entries) {
+    for (const TransientResourcePool::Entry* ep = tp.entries; ep; ep = ep->next) {
+        const TransientResourcePool::Entry& e = *ep;
         ++held; if (e.inUse) ++inUse;
         if (e.kind == ResourceKind::Buffer) { ++bufHeld; bufBytes += e.bufferSize; if (e.inUse) bufInUseBytes += e.bufferSize; }
         else {
@@ -2205,10 +2206,11 @@ static void rg_draw_memory(RenderGraphStorage& s)
     // leaves size {} / format Undefined, so split on bufferSize to size each right; mem already scales by layers.
     int tmpTexCount = 0, tmpBufCount = 0;
     uint64_t tmpTexBytes = 0, tmpBufBytes = 0;
-    for (const PersistentResourcePool::Entry& e : pool.entries) {
+    for (const PersistentResourcePool::Entry* ep = pool.entries; ep; ep = ep->next) {
+        const PersistentResourcePool::Entry& e = *ep;
         if (!e.created) continue;
         if (e.bufferSize) { ++tmpBufCount; tmpBufBytes += e.bufferSize * e.layers; }
-        else              { ++tmpTexCount; tmpTexBytes += rg_texture_bytes(e.size, e.format, e.mipLevelCount) * e.layers; }
+        else              { ++tmpTexCount; tmpTexBytes += rg_texture_bytes(e.sig.size, e.sig.format, e.sig.mipLevelCount) * e.layers; }
     }
 
     const uint64_t grand = texBytes + bufBytes + tmpTexBytes + tmpBufBytes;
@@ -2243,7 +2245,7 @@ static void rg_draw_memory(RenderGraphStorage& s)
     // the slot bytes counted once per logical member minus once per physical slot. mirrors the lifetime view.
     if (s.m_slotCount) {
         auto phBytes = [](const PhysicalResource& ph) -> uint64_t {
-            return ph.kind == ResourceKind::Buffer ? ph.bufferSize : texture_bytes(ph.size, ph.format);
+            return ph.kind == ResourceKind::Buffer ? ph.bufferSize : texture_bytes(ph.sig.size, ph.sig.format);
         };
         uint32_t logical = 0; uint64_t logicalBytes = 0, physicalBytes = 0;
         for (uint32_t i = 0; i < s.m_slotCount; ++i) physicalBytes += phBytes(s.m_slots[i]);
@@ -2311,15 +2313,16 @@ static void rg_draw_memory(RenderGraphStorage& s)
         ImGui::TableSetupColumn("state");
         ImGui::TableHeadersRow();
         int idx = 0;
-        for (const TransientResourcePool::Entry& e : tp.entries) {
+        for (const TransientResourcePool::Entry* ep = tp.entries; ep; ep = ep->next) {
+            const TransientResourcePool::Entry& e = *ep;
             if (e.kind == ResourceKind::Buffer) continue;   // buffers listed in their own table below
             char ub[8]; rg_usage_str(e.usage, ub, sizeof ub);
             const uint64_t eb = rg_entry_bytes(e);
             ImGui::TableNextRow();
-            ImGui::TableNextColumn(); ImGui::Text("%ux%u", e.size.width, e.size.height);
-            ImGui::TableNextColumn(); ImGui::Text("%u", e.mipLevelCount);
-            ImGui::TableNextColumn(); ImGui::Text("%u", e.size.depthOrArrayLayers);
-            ImGui::TableNextColumn(); ImGui::Text("%s", rg_format_name(e.format));
+            ImGui::TableNextColumn(); ImGui::Text("%ux%u", e.sig.size.width, e.sig.size.height);
+            ImGui::TableNextColumn(); ImGui::Text("%u", e.sig.mipLevelCount);
+            ImGui::TableNextColumn(); ImGui::Text("%u", e.sig.size.depthOrArrayLayers);
+            ImGui::TableNextColumn(); ImGui::Text("%s", rg_format_name(e.sig.format));
             ImGui::TableNextColumn(); ImGui::Text("%s", ub);
             ImGui::TableNextColumn();
             if (eb) { char mb[24]; rg_bytes_str(eb, mb, sizeof mb); ImGui::Text("%s", mb); }
@@ -2341,7 +2344,8 @@ static void rg_draw_memory(RenderGraphStorage& s)
         ImGui::TableSetupColumn("state");
         ImGui::TableHeadersRow();
         bool any = false;
-        for (const TransientResourcePool::Entry& e : tp.entries) {
+        for (const TransientResourcePool::Entry* ep = tp.entries; ep; ep = ep->next) {
+            const TransientResourcePool::Entry& e = *ep;
             if (e.kind != ResourceKind::Buffer) continue;
             any = true;
             char ub[12]; rg_buf_usage_str(e.bufUsage, ub, sizeof ub);
@@ -2372,17 +2376,18 @@ static void rg_draw_memory(RenderGraphStorage& s)
         ImGui::TableSetupColumn("mem");
         ImGui::TableHeadersRow();
         bool any = false;
-        for (const PersistentResourcePool::Entry& e : pool.entries) {
+        for (const PersistentResourcePool::Entry* ep = pool.entries; ep; ep = ep->next) {
+            const PersistentResourcePool::Entry& e = *ep;
             if (!e.created || e.bufferSize) continue;   // buffer-arm entries listed in their own table below
             any = true;
             char ub[8]; rg_usage_str(e.usage, ub, sizeof ub);
-            const uint64_t eb = rg_texture_bytes(e.size, e.format, e.mipLevelCount) * e.layers;
+            const uint64_t eb = rg_texture_bytes(e.sig.size, e.sig.format, e.sig.mipLevelCount) * e.layers;
             ImGui::TableNextRow();
-            ImGui::TableNextColumn(); ImGui::Text("%s", e.name.c_str());
-            ImGui::TableNextColumn(); ImGui::Text("%ux%u", e.size.width, e.size.height);
-            ImGui::TableNextColumn(); ImGui::Text("%u", e.mipLevelCount);
-            ImGui::TableNextColumn(); ImGui::Text("%u x%u", e.size.depthOrArrayLayers, e.layers);
-            ImGui::TableNextColumn(); ImGui::Text("%s", rg_format_name(e.format));
+            ImGui::TableNextColumn(); ImGui::Text("%s", e.name);
+            ImGui::TableNextColumn(); ImGui::Text("%ux%u", e.sig.size.width, e.sig.size.height);
+            ImGui::TableNextColumn(); ImGui::Text("%u", e.sig.mipLevelCount);
+            ImGui::TableNextColumn(); ImGui::Text("%u x%u", e.sig.size.depthOrArrayLayers, e.layers);
+            ImGui::TableNextColumn(); ImGui::Text("%s", rg_format_name(e.sig.format));
             ImGui::TableNextColumn(); ImGui::Text("%s", ub);
             ImGui::TableNextColumn();
             if (eb) { char mb[24]; rg_bytes_str(eb, mb, sizeof mb); ImGui::Text("%s", mb); }
@@ -2402,13 +2407,14 @@ static void rg_draw_memory(RenderGraphStorage& s)
         ImGui::TableSetupColumn("mem (x layers)");
         ImGui::TableHeadersRow();
         bool any = false;
-        for (const PersistentResourcePool::Entry& e : pool.entries) {
+        for (const PersistentResourcePool::Entry* ep = pool.entries; ep; ep = ep->next) {
+            const PersistentResourcePool::Entry& e = *ep;
             if (!e.created || !e.bufferSize) continue;
             any = true;
             char ub[12]; rg_buf_usage_str(e.bufUsage, ub, sizeof ub);
             char mb[24]; rg_bytes_str(e.bufferSize * e.layers, mb, sizeof mb);
             ImGui::TableNextRow();
-            ImGui::TableNextColumn(); ImGui::Text("%s", e.name.c_str());
+            ImGui::TableNextColumn(); ImGui::Text("%s", e.name);
             ImGui::TableNextColumn(); ImGui::Text("%s", ub);
             ImGui::TableNextColumn(); ImGui::Text("%s", mb);
         }
@@ -2512,14 +2518,17 @@ static void rg_draw_arena_bar(const char* label, const char* valueLabel, size_t 
     }
 }
 
-// The per-frame GraphAllocator as two stacked usage bars: it is two independent, growable, block-chained
-// arenas (not one buffer): `front` holds the frame's permanent objects (RenderGraph + storage, every
-// resource/pass node, the type-erased execute closures, copied strings); `scratch` holds compile()'s
-// temporaries, rewound per scope, so we show its per-frame high-water rather than the (empty) live value.
+// The GraphAllocator as three stacked usage bars: three independent, growable, block-chained arenas (not
+// one buffer): `front` holds the frame's permanent objects (RenderGraph + storage, every resource/pass
+// node, the type-erased execute closures, copied strings); `scratch` holds compile()'s temporaries,
+// rewound per scope, so we show its per-frame high-water rather than the (empty) live value; `persist`
+// backs the pool Entry cells (transient + persistent), never per-frame reset, so its live value is the
+// pools' bounded footprint (peak live cell count, recycled through the free-lists).
 static void rg_draw_arena(GraphAllocator& a)
 {
-    rg_draw_arena_bar("front",   "used", a.front.live_used(), a.front,   kRGRead);
-    rg_draw_arena_bar("scratch", "peak", a.scratch.peakUsage, a.scratch, kRGWrite);
+    rg_draw_arena_bar("front",   "used", a.front.live_used(),   a.front,   kRGRead);
+    rg_draw_arena_bar("scratch", "peak", a.scratch.peakUsage,   a.scratch, kRGWrite);
+    rg_draw_arena_bar("persist", "used", a.persist.live_used(), a.persist, kRGExt);
 }
 
 // distinct line colors for the timing series, cycled by series index. kept opaque/bright so thin polylines
