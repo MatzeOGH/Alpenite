@@ -1008,6 +1008,7 @@ static void validate_texture_desc(const TextureDesc& desc)
 
 static void apply_texture_desc(ResourceNode* r, const TextureDesc& desc)
 {
+    validate_texture_desc(desc);
     r->dimension        = desc.dimension;
     r->format           = desc.format;
     r->sizeKind         = desc.sizeKind;
@@ -1026,7 +1027,6 @@ static TexSignature tex_signature(const ResourceNode* r)
 
 ResourceHandle RenderGraph::create_transient_texture(std::string_view id, const TextureDesc& desc)
 {
-    validate_texture_desc(desc);
     RenderGraphStorage& s = *storage(this);
     Q_ASSERT(s.m_state == RenderGraphState::Recording && "Render graph is in read only mode after compile()");
 
@@ -1945,7 +1945,7 @@ static void validate_access_ranges(RenderGraphStorage& s)
                 if (a.mipCount && uint32_t(a.baseMip) + a.mipCount > mips)
                     push_error(s, "pass \"%.*s\": resource \"%.*s\" declares a view of %u mip(s) from mip %u but has %u mip(s).",
                         RG_NAME(p->id), RG_NAME(r->id), (uint32_t)a.mipCount, (uint32_t)a.baseMip, mips);
-                if (false && a.layerCount && uint32_t(a.baseLayer) + a.layerCount > layers)
+                if (a.layerCount && uint32_t(a.baseLayer) + a.layerCount > layers)
                     push_error(s, "pass \"%.*s\": resource \"%.*s\" declares a view of %u layer(s) from layer %u but has %u layer(s).",
                         RG_NAME(p->id), RG_NAME(r->id), (uint32_t)a.layerCount, (uint32_t)a.baseLayer, layers);
                 continue;

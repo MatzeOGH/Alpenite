@@ -87,19 +87,132 @@ static ImU32 rg_resource_color(ResourceKind k)
 // else falls back to the raw enum so an unexpected recreate still shows something legible.
 static const char* rg_format_name(WGPUTextureFormat f)
 {
-    switch (f) {
-    case WGPUTextureFormat_BGRA8Unorm:   return "BGRA8";
-    case WGPUTextureFormat_RGBA8Unorm:   return "RGBA8";
-    case WGPUTextureFormat_RGBA16Float:  return "RGBA16F";
-    case WGPUTextureFormat_RG16Float:    return "RG16F";
-    case WGPUTextureFormat_R16Float:     return "R16F";
-    case WGPUTextureFormat_R8Unorm:      return "R8";
-    case WGPUTextureFormat_R32Float:     return "R32F";
-    case WGPUTextureFormat_Depth32Float: return "D32F";
-    default: break;
+    switch (f)
+    {
+    // 8-bit formats
+    case WGPUTextureFormat_R8Unorm:              return "R8Unorm";
+    case WGPUTextureFormat_R8Snorm:              return "R8Snorm";
+    case WGPUTextureFormat_R8Uint:               return "R8Uint";
+    case WGPUTextureFormat_R8Sint:               return "R8Sint";
+
+    // 16-bit formats
+    case WGPUTextureFormat_R16Uint:              return "R16Uint";
+    case WGPUTextureFormat_R16Sint:              return "R16Sint";
+    case WGPUTextureFormat_R16Float:             return "R16Float";
+
+    case WGPUTextureFormat_RG8Unorm:             return "RG8Unorm";
+    case WGPUTextureFormat_RG8Snorm:             return "RG8Snorm";
+    case WGPUTextureFormat_RG8Uint:              return "RG8Uint";
+    case WGPUTextureFormat_RG8Sint:              return "RG8Sint";
+
+    // 32-bit formats
+    case WGPUTextureFormat_R32Float:             return "R32Float";
+    case WGPUTextureFormat_R32Uint:              return "R32Uint";
+    case WGPUTextureFormat_R32Sint:              return "R32Sint";
+
+    case WGPUTextureFormat_RG16Uint:             return "RG16Uint";
+    case WGPUTextureFormat_RG16Sint:             return "RG16Sint";
+    case WGPUTextureFormat_RG16Float:            return "RG16Float";
+
+    case WGPUTextureFormat_RGBA8Unorm:           return "RGBA8Unorm";
+    case WGPUTextureFormat_RGBA8UnormSrgb:       return "RGBA8UnormSrgb";
+    case WGPUTextureFormat_RGBA8Snorm:           return "RGBA8Snorm";
+    case WGPUTextureFormat_RGBA8Uint:            return "RGBA8Uint";
+    case WGPUTextureFormat_RGBA8Sint:            return "RGBA8Sint";
+
+    case WGPUTextureFormat_BGRA8Unorm:           return "BGRA8Unorm";
+    case WGPUTextureFormat_BGRA8UnormSrgb:       return "BGRA8UnormSrgb";
+
+    case WGPUTextureFormat_RGB10A2Uint:          return "RGB10A2Uint";
+    case WGPUTextureFormat_RGB10A2Unorm:         return "RGB10A2Unorm";
+    case WGPUTextureFormat_RG11B10Ufloat:        return "RG11B10Ufloat";
+
+    // 64-bit formats
+    case WGPUTextureFormat_RG32Float:            return "RG32Float";
+    case WGPUTextureFormat_RG32Uint:             return "RG32Uint";
+    case WGPUTextureFormat_RG32Sint:             return "RG32Sint";
+
+    case WGPUTextureFormat_RGBA16Uint:           return "RGBA16Uint";
+    case WGPUTextureFormat_RGBA16Sint:           return "RGBA16Sint";
+    case WGPUTextureFormat_RGBA16Float:          return "RGBA16Float";
+
+    // 128-bit formats
+    case WGPUTextureFormat_RGBA32Float:          return "RGBA32Float";
+    case WGPUTextureFormat_RGBA32Uint:           return "RGBA32Uint";
+    case WGPUTextureFormat_RGBA32Sint:           return "RGBA32Sint";
+
+    // Depth / stencil
+    case WGPUTextureFormat_Stencil8:             return "Stencil8";
+    case WGPUTextureFormat_Depth16Unorm:         return "Depth16Unorm";
+    case WGPUTextureFormat_Depth24Plus:          return "Depth24Plus";
+    case WGPUTextureFormat_Depth24PlusStencil8: return "Depth24PlusStencil8";
+    case WGPUTextureFormat_Depth32Float:         return "Depth32Float";
+    case WGPUTextureFormat_Depth32FloatStencil8:return "Depth32FloatStencil8";
+
+    // BC compressed
+    case WGPUTextureFormat_BC1RGBAUnorm:         return "BC1RGBAUnorm";
+    case WGPUTextureFormat_BC1RGBAUnormSrgb:     return "BC1RGBAUnormSrgb";
+    case WGPUTextureFormat_BC2RGBAUnorm:         return "BC2RGBAUnorm";
+    case WGPUTextureFormat_BC2RGBAUnormSrgb:     return "BC2RGBAUnormSrgb";
+    case WGPUTextureFormat_BC3RGBAUnorm:         return "BC3RGBAUnorm";
+    case WGPUTextureFormat_BC3RGBAUnormSrgb:     return "BC3RGBAUnormSrgb";
+    case WGPUTextureFormat_BC4RUnorm:            return "BC4RUnorm";
+    case WGPUTextureFormat_BC4RSnorm:            return "BC4RSnorm";
+    case WGPUTextureFormat_BC5RGUnorm:           return "BC5RGUnorm";
+    case WGPUTextureFormat_BC5RGSnorm:           return "BC5RGSnorm";
+    case WGPUTextureFormat_BC6HRGBUfloat:        return "BC6HRGBUfloat";
+    case WGPUTextureFormat_BC6HRGBFloat:         return "BC6HRGBFloat";
+    case WGPUTextureFormat_BC7RGBAUnorm:         return "BC7RGBAUnorm";
+    case WGPUTextureFormat_BC7RGBAUnormSrgb:     return "BC7RGBAUnormSrgb";
+
+    // ETC2
+    case WGPUTextureFormat_ETC2RGB8Unorm:             return "ETC2RGB8Unorm";
+    case WGPUTextureFormat_ETC2RGB8UnormSrgb:         return "ETC2RGB8UnormSrgb";
+    case WGPUTextureFormat_ETC2RGB8A1Unorm:           return "ETC2RGB8A1Unorm";
+    case WGPUTextureFormat_ETC2RGB8A1UnormSrgb:       return "ETC2RGB8A1UnormSrgb";
+    case WGPUTextureFormat_ETC2RGBA8Unorm:            return "ETC2RGBA8Unorm";
+    case WGPUTextureFormat_ETC2RGBA8UnormSrgb:        return "ETC2RGBA8UnormSrgb";
+    case WGPUTextureFormat_EACR11Unorm:               return "EACR11Unorm";
+    case WGPUTextureFormat_EACR11Snorm:               return "EACR11Snorm";
+    case WGPUTextureFormat_EACRG11Unorm:              return "EACRG11Unorm";
+    case WGPUTextureFormat_EACRG11Snorm:              return "EACRG11Snorm";
+
+    // ASTC
+    case WGPUTextureFormat_ASTC4x4Unorm:              return "ASTC4x4Unorm";
+    case WGPUTextureFormat_ASTC4x4UnormSrgb:          return "ASTC4x4UnormSrgb";
+    case WGPUTextureFormat_ASTC5x4Unorm:              return "ASTC5x4Unorm";
+    case WGPUTextureFormat_ASTC5x4UnormSrgb:          return "ASTC5x4UnormSrgb";
+    case WGPUTextureFormat_ASTC5x5Unorm:              return "ASTC5x5Unorm";
+    case WGPUTextureFormat_ASTC5x5UnormSrgb:          return "ASTC5x5UnormSrgb";
+    case WGPUTextureFormat_ASTC6x5Unorm:              return "ASTC6x5Unorm";
+    case WGPUTextureFormat_ASTC6x5UnormSrgb:          return "ASTC6x5UnormSrgb";
+    case WGPUTextureFormat_ASTC6x6Unorm:              return "ASTC6x6Unorm";
+    case WGPUTextureFormat_ASTC6x6UnormSrgb:          return "ASTC6x6UnormSrgb";
+    case WGPUTextureFormat_ASTC8x5Unorm:              return "ASTC8x5Unorm";
+    case WGPUTextureFormat_ASTC8x5UnormSrgb:          return "ASTC8x5UnormSrgb";
+    case WGPUTextureFormat_ASTC8x6Unorm:              return "ASTC8x6Unorm";
+    case WGPUTextureFormat_ASTC8x6UnormSrgb:          return "ASTC8x6UnormSrgb";
+    case WGPUTextureFormat_ASTC8x8Unorm:              return "ASTC8x8Unorm";
+    case WGPUTextureFormat_ASTC8x8UnormSrgb:          return "ASTC8x8UnormSrgb";
+    case WGPUTextureFormat_ASTC10x5Unorm:             return "ASTC10x5Unorm";
+    case WGPUTextureFormat_ASTC10x5UnormSrgb:         return "ASTC10x5UnormSrgb";
+    case WGPUTextureFormat_ASTC10x6Unorm:             return "ASTC10x6Unorm";
+    case WGPUTextureFormat_ASTC10x6UnormSrgb:         return "ASTC10x6UnormSrgb";
+    case WGPUTextureFormat_ASTC10x8Unorm:             return "ASTC10x8Unorm";
+    case WGPUTextureFormat_ASTC10x8UnormSrgb:         return "ASTC10x8UnormSrgb";
+    case WGPUTextureFormat_ASTC10x10Unorm:            return "ASTC10x10Unorm";
+    case WGPUTextureFormat_ASTC10x10UnormSrgb:        return "ASTC10x10UnormSrgb";
+    case WGPUTextureFormat_ASTC12x10Unorm:            return "ASTC12x10Unorm";
+    case WGPUTextureFormat_ASTC12x10UnormSrgb:        return "ASTC12x10UnormSrgb";
+    case WGPUTextureFormat_ASTC12x12Unorm:            return "ASTC12x12Unorm";
+    case WGPUTextureFormat_ASTC12x12UnormSrgb:        return "ASTC12x12UnormSrgb";
+
+    default:
+        break;
     }
-    static char buf[16];
-    std::snprintf(buf, sizeof buf, "fmt#%d", (int)f);
+
+    static char buf[32];
+    std::snprintf(buf, sizeof(buf), "TextureFormat(%u)", (unsigned)f);
     return buf;
 }
 
@@ -127,43 +240,184 @@ static void rg_buf_usage_str(WGPUBufferUsage u, char* out, size_t n)
         (u & WGPUBufferUsage_CopyDst)  ? "w" : "");
 }
 
-// bytes per texel for the formats this sample makes; unknown -> 0 so the UI shows "?" instead of
-// inventing a number. tracks the set rg_format_name covers.
-static uint32_t rg_format_bytes(WGPUTextureFormat f)
+// texel-block descriptor for the formats this sample makes: block footprint in texels (1x1 for
+// uncompressed) plus bytes per block. rg_texture_bytes sizes by whole blocks, so a compressed format is
+// exact (BC1 = 0.5 B/texel, every ASTC block density) and a partial edge block still costs a full block.
+// unknown -> {0,0,0} so the UI shows "?" instead of inventing a number. tracks the set rg_format_name covers.
+struct RgBlock { uint32_t w, h, bytes; };
+static RgBlock rg_format_block(WGPUTextureFormat f)
 {
-    switch (f) {
-    case WGPUTextureFormat_R8Unorm:      return 1;
-    case WGPUTextureFormat_R16Float:     return 2;
-    case WGPUTextureFormat_RG16Float:    return 4;
-    case WGPUTextureFormat_R32Float:     return 4;
-    case WGPUTextureFormat_RGBA8Unorm:   return 4;
-    case WGPUTextureFormat_BGRA8Unorm:   return 4;
-    case WGPUTextureFormat_Depth32Float: return 4;
-    case WGPUTextureFormat_RGBA16Float:  return 8;
-    default: return 0;
+    switch (f)
+    {
+    // 8-bit
+    case WGPUTextureFormat_R8Unorm:
+    case WGPUTextureFormat_R8Snorm:
+    case WGPUTextureFormat_R8Uint:
+    case WGPUTextureFormat_R8Sint:
+    case WGPUTextureFormat_Stencil8:
+        return { 1, 1, 1 };
+
+    // 16-bit
+    case WGPUTextureFormat_R16Uint:
+    case WGPUTextureFormat_R16Sint:
+    case WGPUTextureFormat_R16Float:
+
+    case WGPUTextureFormat_RG8Unorm:
+    case WGPUTextureFormat_RG8Snorm:
+    case WGPUTextureFormat_RG8Uint:
+    case WGPUTextureFormat_RG8Sint:
+
+    case WGPUTextureFormat_Depth16Unorm:
+        return { 1, 1, 2 };
+
+    // 32-bit
+    case WGPUTextureFormat_R32Float:
+    case WGPUTextureFormat_R32Uint:
+    case WGPUTextureFormat_R32Sint:
+
+    case WGPUTextureFormat_RG16Uint:
+    case WGPUTextureFormat_RG16Sint:
+    case WGPUTextureFormat_RG16Float:
+
+    case WGPUTextureFormat_RGBA8Unorm:
+    case WGPUTextureFormat_RGBA8UnormSrgb:
+    case WGPUTextureFormat_RGBA8Snorm:
+    case WGPUTextureFormat_RGBA8Uint:
+    case WGPUTextureFormat_RGBA8Sint:
+
+    case WGPUTextureFormat_BGRA8Unorm:
+    case WGPUTextureFormat_BGRA8UnormSrgb:
+
+    case WGPUTextureFormat_RGB10A2Uint:
+    case WGPUTextureFormat_RGB10A2Unorm:
+    case WGPUTextureFormat_RG11B10Ufloat:
+
+    case WGPUTextureFormat_Depth24Plus:
+    case WGPUTextureFormat_Depth32Float:
+        return { 1, 1, 4 };
+
+    // 64-bit
+    case WGPUTextureFormat_RG32Float:
+    case WGPUTextureFormat_RG32Uint:
+    case WGPUTextureFormat_RG32Sint:
+
+    case WGPUTextureFormat_RGBA16Uint:
+    case WGPUTextureFormat_RGBA16Sint:
+    case WGPUTextureFormat_RGBA16Float:
+
+    case WGPUTextureFormat_Depth24PlusStencil8:
+    case WGPUTextureFormat_Depth32FloatStencil8:
+        return { 1, 1, 8 };
+
+    // 128-bit
+    case WGPUTextureFormat_RGBA32Float:
+    case WGPUTextureFormat_RGBA32Uint:
+    case WGPUTextureFormat_RGBA32Sint:
+        return { 1, 1, 16 };
+
+
+    // BC1 / BC4: 8 bytes per 4x4 block
+    case WGPUTextureFormat_BC1RGBAUnorm:
+    case WGPUTextureFormat_BC1RGBAUnormSrgb:
+    case WGPUTextureFormat_BC4RUnorm:
+    case WGPUTextureFormat_BC4RSnorm:
+        return { 4, 4, 8 };
+
+    // BC2/3/5/6H/7: 16 bytes per 4x4 block
+    case WGPUTextureFormat_BC2RGBAUnorm:
+    case WGPUTextureFormat_BC2RGBAUnormSrgb:
+    case WGPUTextureFormat_BC3RGBAUnorm:
+    case WGPUTextureFormat_BC3RGBAUnormSrgb:
+    case WGPUTextureFormat_BC5RGUnorm:
+    case WGPUTextureFormat_BC5RGSnorm:
+    case WGPUTextureFormat_BC6HRGBUfloat:
+    case WGPUTextureFormat_BC6HRGBFloat:
+    case WGPUTextureFormat_BC7RGBAUnorm:
+    case WGPUTextureFormat_BC7RGBAUnormSrgb:
+        return { 4, 4, 16 };
+
+
+    // ETC2 RGB8 / RGB8A1 and EAC R11: 8 bytes per 4x4 block
+    case WGPUTextureFormat_ETC2RGB8Unorm:
+    case WGPUTextureFormat_ETC2RGB8UnormSrgb:
+    case WGPUTextureFormat_ETC2RGB8A1Unorm:
+    case WGPUTextureFormat_ETC2RGB8A1UnormSrgb:
+    case WGPUTextureFormat_EACR11Unorm:
+    case WGPUTextureFormat_EACR11Snorm:
+        return { 4, 4, 8 };
+
+    // ETC2 RGBA8 and EAC RG11: 16 bytes per 4x4 block
+    case WGPUTextureFormat_ETC2RGBA8Unorm:
+    case WGPUTextureFormat_ETC2RGBA8UnormSrgb:
+    case WGPUTextureFormat_EACRG11Unorm:
+    case WGPUTextureFormat_EACRG11Snorm:
+        return { 4, 4, 16 };
+
+
+    // ASTC: always 16 bytes per block, block footprint read straight off the enum name
+    case WGPUTextureFormat_ASTC4x4Unorm:
+    case WGPUTextureFormat_ASTC4x4UnormSrgb:   return { 4, 4, 16 };
+    case WGPUTextureFormat_ASTC5x4Unorm:
+    case WGPUTextureFormat_ASTC5x4UnormSrgb:   return { 5, 4, 16 };
+    case WGPUTextureFormat_ASTC5x5Unorm:
+    case WGPUTextureFormat_ASTC5x5UnormSrgb:   return { 5, 5, 16 };
+    case WGPUTextureFormat_ASTC6x5Unorm:
+    case WGPUTextureFormat_ASTC6x5UnormSrgb:   return { 6, 5, 16 };
+    case WGPUTextureFormat_ASTC6x6Unorm:
+    case WGPUTextureFormat_ASTC6x6UnormSrgb:   return { 6, 6, 16 };
+    case WGPUTextureFormat_ASTC8x5Unorm:
+    case WGPUTextureFormat_ASTC8x5UnormSrgb:   return { 8, 5, 16 };
+    case WGPUTextureFormat_ASTC8x6Unorm:
+    case WGPUTextureFormat_ASTC8x6UnormSrgb:   return { 8, 6, 16 };
+    case WGPUTextureFormat_ASTC8x8Unorm:
+    case WGPUTextureFormat_ASTC8x8UnormSrgb:   return { 8, 8, 16 };
+    case WGPUTextureFormat_ASTC10x5Unorm:
+    case WGPUTextureFormat_ASTC10x5UnormSrgb:  return { 10, 5, 16 };
+    case WGPUTextureFormat_ASTC10x6Unorm:
+    case WGPUTextureFormat_ASTC10x6UnormSrgb:  return { 10, 6, 16 };
+    case WGPUTextureFormat_ASTC10x8Unorm:
+    case WGPUTextureFormat_ASTC10x8UnormSrgb:  return { 10, 8, 16 };
+    case WGPUTextureFormat_ASTC10x10Unorm:
+    case WGPUTextureFormat_ASTC10x10UnormSrgb: return { 10, 10, 16 };
+    case WGPUTextureFormat_ASTC12x10Unorm:
+    case WGPUTextureFormat_ASTC12x10UnormSrgb: return { 12, 10, 16 };
+    case WGPUTextureFormat_ASTC12x12Unorm:
+    case WGPUTextureFormat_ASTC12x12UnormSrgb: return { 12, 12, 16 };
+
+    default:
+        break;
     }
+
+    return { 0, 0, 0 };
 }
 
-// one texture's footprint: every mip level, times array layers. NOTE(Huerbe): layers stays constant
-// across mips, right for 2D / 2D-array (all this sample makes), over-counts a true 3D texture whose
-// depth also halves each level. shared by the transient pool and the history (history) pool.
-static uint64_t rg_texture_bytes(WGPUExtent3D size, WGPUTextureFormat format, uint32_t mipLevelCount)
+// one texture's footprint: every mip level, times array layers, times samples. depthOrArrayLayers means array
+// layers for a 2D/2D-array texture (constant across mips) but the DEPTH of a 3D texture (which halves each mip
+// like width/height), so the two are split on `dim`. an MSAA texture (sampleCount > 1) always has a single mip
+// and is never 3D, so the sample multiply lands on the whole footprint. shared by the transient + history pools.
+static uint64_t rg_texture_bytes(WGPUExtent3D size, WGPUTextureFormat format, uint32_t mipLevelCount,
+    uint32_t sampleCount = 1, WGPUTextureDimension dim = WGPUTextureDimension_2D)
 {
-    const uint64_t bpp = rg_format_bytes(format);
-    if (!bpp) return 0;
-    const uint32_t layers = size.depthOrArrayLayers ? size.depthOrArrayLayers : 1;
+    const RgBlock b = rg_format_block(format);
+    if (!b.bytes) return 0;
+    const bool is3D = dim == WGPUTextureDimension_3D;
+    const uint32_t layers = is3D ? 1u : (size.depthOrArrayLayers ? size.depthOrArrayLayers : 1);   // array layers, mip-constant
+    const uint32_t samples = sampleCount ? sampleCount : 1;
     uint64_t total = 0;
     for (uint32_t m = 0; m < mipLevelCount; ++m) {
         const uint32_t w = (size.width  >> m) ? (size.width  >> m) : 1u;   // max(1, ..) without <algorithm>
         const uint32_t h = (size.height >> m) ? (size.height >> m) : 1u;
-        total += (uint64_t)w * h * layers * bpp;
+        const uint32_t d = is3D ? ((size.depthOrArrayLayers >> m) ? (size.depthOrArrayLayers >> m) : 1u) : 1u;   // 3D depth halves per mip
+        const uint32_t bw = (w + b.w - 1) / b.w;   // ceil to whole blocks, so an edge block still costs full
+        const uint32_t bh = (h + b.h - 1) / b.h;
+        total += (uint64_t)bw * bh * d * layers * samples * b.bytes;
     }
     return total;
 }
 
 static uint64_t rg_entry_bytes(const TransientResourcePool::Entry& e)
 {
-    return rg_texture_bytes(e.sig.size, e.sig.format, e.sig.mipLevelCount);
+    return rg_texture_bytes(e.sig.size, e.sig.format, e.sig.mipLevelCount, e.sig.sampleCount, e.sig.dim);
 }
 
 // byte count -> short human string. NOTE(Huerbe): no GB tier, a transient pool is a few MB.
@@ -683,6 +937,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         float h = kHeaderH + (rows ? rows * kPinRowH : kMinBodyH) + kFooterH;
         box[n] = { p, 0, ImVec2(0, 0), kBoxW, h, nIn, nOut };
     }
+    // total pass count, so the toolbar can flag when the graph is larger than the DAG cap (silently truncated).
+    int rgPassTotal = 0; for (PassNode* q = s.m_passes; q; q = q->next) ++rgPassTotal;
 
     // dist = longest path to a sink over all deps; reverse exec order visits sinks first and relaxes
     // each producer. column = maxDist - dist.
@@ -1012,9 +1268,16 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
             if (colMax < colMin) continue;
             float hullTop = bandTop - kRegionPad - kHeaderH, hullBot = bandBot + kRegionPad, mid = (bandTop + bandBot) * 0.5f;
             const float kClear = kRowGap * 0.5f;
+            // per-column stacking frontier: several nodes evicted to the same side of one column must stack, not
+            // all snap to the hull edge (which piled them on one line). topFront = next free bottom-edge going up,
+            // botFront = next free top-edge going down. seeded at the hull edge; only columns [colMin,colMax] used.
+            static std::vector<float> topFront, botFront;
+            topFront.assign(maxDist + 1, hullTop - kClear);
+            botFront.assign(maxDist + 1, hullBot + kClear);
             for (int li = 0; li < LN; ++li) {
                 if (inSub(li, o)) continue;                                      // a member / interior dummy belongs inside
-                if (lnode[li].col < colMin || lnode[li].col > colMax) continue;  // not under the hull
+                int c = lnode[li].col;
+                if (c < colMin || c > colMax) continue;                          // not under the hull
                 // a node wired to a group member (a history/present endpoint or a boundary-edge dummy) belongs
                 // AT the border next to its member, so don't evict it.
                 bool linked = false;
@@ -1023,7 +1286,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
                 if (linked) continue;
                 float t = cy[li] - lh[li] * 0.5f, b = cy[li] + lh[li] * 0.5f;
                 if (b <= hullTop || t >= hullBot) continue;                      // already clear
-                cy[li] = cy[li] < mid ? hullTop - lh[li] * 0.5f - kClear : hullBot + lh[li] * 0.5f + kClear;
+                if (cy[li] < mid) { cy[li] = topFront[c] - lh[li] * 0.5f; topFront[c] = cy[li] - lh[li] * 0.5f - kClear; }
+                else              { cy[li] = botFront[c] + lh[li] * 0.5f; botFront[c] = cy[li] + lh[li] * 0.5f + kClear; }
             }
         }
     }
@@ -1034,6 +1298,10 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     // real boxes in their own columns), so column x is the uniform c*(kBoxW+kColGap) cadence.
     float colW[kRgDagMax], colX[kRgDagMax];
     for (int c = 0; c <= maxDist; ++c) colW[c] = kBoxW;
+    // a virtual endpoint is centred in its column and can be wider than a pass box (a long resource name),
+    // so widen the column to fit it. otherwise the centred node overhangs kColGap on both sides and, past a
+    // point, lands on the neighbouring column's boxes. only columns holding a wide endpoint grow.
+    for (const TNode& t : tnodes) { int c = lnode[t.li].col; if (t.w > colW[c]) colW[c] = t.w; }
     colX[0] = 0; for (int c = 1; c <= maxDist; ++c) colX[c] = colX[c - 1] + colW[c - 1] + kColGap;
     for (int c = 0; c <= maxDist; ++c) {
         for (int li : lcol[c]) {
@@ -1046,8 +1314,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
             else {
                 lnode[li].x = cx; lnode[li].y = cy[li];   // dummy: column left edge + lane centre
                 int t = lnode[li].tn;
-                if (t >= 0) {   // history node: centre in the column slot, include in the view bbox
-                    float ctr = cx + kBoxW * 0.5f, hw = tnodes[t].w * 0.5f, hh = tnodes[t].h * 0.5f;
+                if (t >= 0) {   // history node: centre in the (possibly widened) column slot, include in the view bbox
+                    float ctr = cx + colW[c] * 0.5f, hw = tnodes[t].w * 0.5f, hh = tnodes[t].h * 0.5f;
                     lnode[li].x = ctr;
                     if (ctr - hw < gxMin) gxMin = ctr - hw; if (ctr + hw > gxMax) gxMax = ctr + hw;
                     if (cy[li] - hh < gyMin) gyMin = cy[li] - hh; if (cy[li] + hh > gyMax) gyMax = cy[li] + hh;
@@ -1099,6 +1367,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     ImGui::SameLine(); ImGui::Checkbox("virtual nodes", &showVirtual);
     ImGui::SameLine(); ImGui::Checkbox("fan-out buffers", &fanBuffers);   // off -> one virtual node per buffer use site
     ImGui::SameLine(); ImGui::Checkbox("collapse groups", &collapseDefault);   // default state; a group header click overrides
+    if (rgPassTotal > n) { ImGui::SameLine(); ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.30f, 1), "|  showing %d of %d passes (cap %d)", n, rgPassTotal, kRgDagMax); }
     const bool filterActive = filter[0] != 0;
 
     // pannable canvas: drag left/middle to pan, wheel to zoom (handled at the top, before layout) + a grid,
@@ -1904,7 +2173,7 @@ static const char* rg_format_short(WGPUTextureFormat f)
 // firstUse/lastUse come from compile() phase 3; the slot table from phase 4.
 static void rg_draw_lifetimes(RenderGraph* rg, RenderGraphStorage& s)
 {
-    constexpr int   kMax = 128;
+    constexpr int   kMax = kRgDagMax;   // one cap for every tab, so the same graph never shows a different pass set
     constexpr float kLabelW = 150.0f, kColW = 88.0f, kRowH = 24.0f, kHeaderH = 24.0f;
 
     ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kRGWrite), "write");
@@ -1938,6 +2207,7 @@ static void rg_draw_lifetimes(RenderGraph* rg, RenderGraphStorage& s)
     PassNode* passAt[kMax];
     int nPass = 0;
     for (PassNode* p = s.m_passes; p && nPass < kMax; p = p->next) passAt[nPass++] = p;
+    int passTotal = 0; for (PassNode* p = s.m_passes; p; p = p->next) ++passTotal;   // for the cap note below
 
     // rows = the graph's dedicated per-frame GPU textures, unified across aliasing on/off: every row is one
     // physical texture. a slot (aliasing on) hosts >=1 disjoint-lifetime transient; a non-aliased transient
@@ -1956,6 +2226,12 @@ static void rg_draw_lifetimes(RenderGraph* rg, RenderGraphStorage& s)
     for (ResourceNode* r = s.m_resouces; r && nRow < kMax; r = r->next)
         if (!r->is_external() && r->aliasSlot == ResourceNode::kNoSlot && r->firstUse != ResourceNode::kNoPass)
             row[nRow++] = { r, -1, r->firstUse, r->lastUse };
+
+    // silent truncation is the one thing a debug view must not do: flag it when the graph outgrew either cap.
+    if (passTotal > nPass || nRow == kMax) {
+        ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.30f, 1),
+            "view capped at %d: showing %d of %d passes%s", kMax, nPass, passTotal, nRow == kMax ? ", rows truncated" : "");
+    }
 
     // uniform per-row queries over the two kinds (a slot reads its m_slots entry + ORs its occupants; a solo
     // row is its one resource). keeps the draw + details code identical for aliased and non-aliased.
@@ -2210,7 +2486,7 @@ static void rg_draw_memory(RenderGraphStorage& s)
         const PersistentResourcePool::Entry& e = *ep;
         if (!e.created) continue;
         if (e.bufferSize) { ++tmpBufCount; tmpBufBytes += e.bufferSize * e.layers; }
-        else              { ++tmpTexCount; tmpTexBytes += rg_texture_bytes(e.sig.size, e.sig.format, e.sig.mipLevelCount) * e.layers; }
+        else              { ++tmpTexCount; tmpTexBytes += rg_texture_bytes(e.sig.size, e.sig.format, e.sig.mipLevelCount, e.sig.sampleCount, e.sig.dim) * e.layers; }
     }
 
     const uint64_t grand = texBytes + bufBytes + tmpTexBytes + tmpBufBytes;
@@ -2303,14 +2579,16 @@ static void rg_draw_memory(RenderGraphStorage& s)
 
     // currently held physical textures.
     ImGui::TextDisabled("transient textures");
-    if (ImGui::BeginTable("tp_live", 7, tf)) {
+    if (ImGui::BeginTable("tp_live", 9, tf)) {
         ImGui::TableSetupColumn("size");
         ImGui::TableSetupColumn("mips");
         ImGui::TableSetupColumn("layers");
+        ImGui::TableSetupColumn("samples");
         ImGui::TableSetupColumn("format");
         ImGui::TableSetupColumn("usage");
         ImGui::TableSetupColumn("mem");
         ImGui::TableSetupColumn("state");
+        ImGui::TableSetupColumn("last use");   // descriptor-keyed pool has no per-row name; show the last claimant
         ImGui::TableHeadersRow();
         int idx = 0;
         for (const TransientResourcePool::Entry* ep = tp.entries; ep; ep = ep->next) {
@@ -2322,6 +2600,7 @@ static void rg_draw_memory(RenderGraphStorage& s)
             ImGui::TableNextColumn(); ImGui::Text("%ux%u", e.sig.size.width, e.sig.size.height);
             ImGui::TableNextColumn(); ImGui::Text("%u", e.sig.mipLevelCount);
             ImGui::TableNextColumn(); ImGui::Text("%u", e.sig.size.depthOrArrayLayers);
+            ImGui::TableNextColumn(); ImGui::Text("%ux", e.sig.sampleCount);
             ImGui::TableNextColumn(); ImGui::Text("%s", rg_format_name(e.sig.format));
             ImGui::TableNextColumn(); ImGui::Text("%s", ub);
             ImGui::TableNextColumn();
@@ -2330,6 +2609,8 @@ static void rg_draw_memory(RenderGraphStorage& s)
             ImGui::TableNextColumn();
             if (e.inUse) ImGui::TextColored(ImVec4(0.55f, 0.80f, 1.0f, 1), "in use");
             else         ImGui::TextDisabled("idle %lluf", (unsigned long long)(tp.frame - e.lastUsedFrame));
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("%s", e.identity ? (const char*)e.identity : "-");   // interned, NUL-terminated
         }
         ImGui::EndTable();
     }
@@ -2366,11 +2647,12 @@ static void rg_draw_memory(RenderGraphStorage& s)
     // a ping-pong history entry, 1 for a persistent (single in-place) one.
     ImGui::Spacing();
     ImGui::TextDisabled("persistent + history textures  (layers: 2 = history ping-pong, 1 = persistent)");
-    if (ImGui::BeginTable("tp_tmp", 7, tf)) {
+    if (ImGui::BeginTable("tp_tmp", 8, tf)) {
         ImGui::TableSetupColumn("name");
         ImGui::TableSetupColumn("size");
         ImGui::TableSetupColumn("mips");
         ImGui::TableSetupColumn("layers");
+        ImGui::TableSetupColumn("samples");
         ImGui::TableSetupColumn("format");
         ImGui::TableSetupColumn("usage");
         ImGui::TableSetupColumn("mem");
@@ -2381,12 +2663,13 @@ static void rg_draw_memory(RenderGraphStorage& s)
             if (!e.created || e.bufferSize) continue;   // buffer-arm entries listed in their own table below
             any = true;
             char ub[8]; rg_usage_str(e.usage, ub, sizeof ub);
-            const uint64_t eb = rg_texture_bytes(e.sig.size, e.sig.format, e.sig.mipLevelCount) * e.layers;
+            const uint64_t eb = rg_texture_bytes(e.sig.size, e.sig.format, e.sig.mipLevelCount, e.sig.sampleCount, e.sig.dim) * e.layers;
             ImGui::TableNextRow();
-            ImGui::TableNextColumn(); ImGui::Text("%s", e.name);
+            ImGui::TableNextColumn(); ImGui::Text("%.*s", (int)e.name.length, e.name.data ? e.name.data : "");
             ImGui::TableNextColumn(); ImGui::Text("%ux%u", e.sig.size.width, e.sig.size.height);
             ImGui::TableNextColumn(); ImGui::Text("%u", e.sig.mipLevelCount);
             ImGui::TableNextColumn(); ImGui::Text("%u x%u", e.sig.size.depthOrArrayLayers, e.layers);
+            ImGui::TableNextColumn(); ImGui::Text("%ux", e.sig.sampleCount);
             ImGui::TableNextColumn(); ImGui::Text("%s", rg_format_name(e.sig.format));
             ImGui::TableNextColumn(); ImGui::Text("%s", ub);
             ImGui::TableNextColumn();
@@ -2414,7 +2697,7 @@ static void rg_draw_memory(RenderGraphStorage& s)
             char ub[12]; rg_buf_usage_str(e.bufUsage, ub, sizeof ub);
             char mb[24]; rg_bytes_str(e.bufferSize * e.layers, mb, sizeof mb);
             ImGui::TableNextRow();
-            ImGui::TableNextColumn(); ImGui::Text("%s", e.name);
+            ImGui::TableNextColumn(); ImGui::Text("%.*s", (int)e.name.length, e.name.data ? e.name.data : "");
             ImGui::TableNextColumn(); ImGui::Text("%s", ub);
             ImGui::TableNextColumn(); ImGui::Text("%s", mb);
         }
@@ -2638,7 +2921,8 @@ static void rg_draw_timings(RenderGraphStorage& s)
         ImGui::Dummy(ImVec2(15, 0));
         ImGui::SameLine();
         char id[80];
-        std::snprintf(id, sizeof(id), "%s##series%u", gp.series[si].name, si);
+        std::snprintf(id, sizeof(id), "%.*s##series%u",
+            (int)gp.series[si].name.length, gp.series[si].name.data ? gp.series[si].name.data : "", si);
         ImGui::Checkbox(id, &gp.series[si].enabled);
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - 70.0f);
         ImGui::Text("%6.1f us", gp.historyLen ? gp.series[si].v[readCol] : 0.0f);
@@ -2680,6 +2964,7 @@ void RenderGraphPanel::draw()
     ImGui::Text(" %1.1f FPS (%1.2f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
     ImGui::Text(" compile %1.0f us  realize %1.0f us  execute %1.0f us", s.timing_compile_us, s.timing_realize_us, s.timing_execute_us);
 
+    const bool hasErrors = rg->get_errors() != nullptr;
     if (ErrorMessage* e = rg->get_errors()) {
         ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(230, 90, 80, 255));
         ImGui::TextUnformatted("compile failed:");
@@ -2698,7 +2983,8 @@ void RenderGraphPanel::draw()
         ImGui::Text("  gpu %.2f ms", totalUs / 1000.0f);
         if (ImGui::IsItemHovered() && ImGui::BeginTooltip()) {
             for (uint32_t i = 0; i < gp.resultCount; ++i)
-                ImGui::Text("%6.1f us  %s", gp.resultUs[i], gp.resultNames[i]);
+                ImGui::Text("%6.1f us  %.*s", gp.resultUs[i],
+                    (int)gp.resultNames[i].length, gp.resultNames[i].data ? gp.resultNames[i].data : "");
             ImGui::EndTooltip();
         }
     }
@@ -2706,7 +2992,13 @@ void RenderGraphPanel::draw()
     rg_draw_arena(*s.m_allocator);
     ImGui::Separator();
 
-    if (ImGui::BeginTabBar("rg_tabs")) {
+    // a failed compile never realized: no slots, no pool entries, adjacency half-built. the graph/lifetime/
+    // memory views would then render misleading empties (e.g. "aliasing OFF: 0 objects"), so gate them behind
+    // a clean graph and let the errors above stand on their own.
+    if (hasErrors) {
+        ImGui::TextDisabled("Graph, Lifetimes and Memory views are hidden until the errors above are fixed.");
+    }
+    else if (ImGui::BeginTabBar("rg_tabs")) {
         if (ImGui::BeginTabItem("Graph")) {
             rg_draw_dag(rg, s);
             ImGui::EndTabItem();
