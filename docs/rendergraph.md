@@ -21,6 +21,7 @@ Pass bodies call `wgpu*` functions directly.
 - [Passes](#passes)
 - [The two rules](#the-two-rules)
 - [Ordering and culling](#ordering-and-culling)
+- [Pass groups](#pass-groups)
 - [Views and ViewRange](#views-and-viewrange)
 - [Buffers](#buffers)
 - [Attachments](#attachments)
@@ -45,6 +46,11 @@ A handle is what declaring a resource returns. `ResourceHandle` is a small value
 names the resource for this frame. Handles are cheap to copy. They are what you pass between
 systems and capture into pass lambdas, and they never carry the GPU object itself: the graph
 resolves a handle to a real `WGPUTexture` or `WGPUBuffer` only during execution.
+
+Creators return the kind-tagged `TextureHandle` or `BufferHandle`, and the declarations take
+those, so handing a buffer to `sampled()` fails to compile rather than tripping an assert. Both
+convert to `ResourceHandle` for the calls that accept either, `bind()` among them, but never the
+other way round. Store handles in their typed form, and prefer `auto` for locals.
 
 A pass is a unit of GPU work declared with `add_pass`. It names every resource it reads and
 writes, and the graph derives ordering from those declarations. A pass whose output nothing
@@ -111,14 +117,14 @@ webgpu::rg::begin_frame(allocator);
 webgpu::rg::RenderGraph* rg = webgpu::rg::start_recording(allocator);
 
 // Import the swapchain first if a pass renders to it (imports happen during recording):
-auto swapchain = rg->import_texture("swapchain", surface_view,
-    { size.x, size.y, 1 }, surface_format);
+auto swapchain = rg->import_texture("swapchain",
+    { .view = surface_view, .size = { size.x, size.y, 1 }, .format = surface_format });
 
 // ...declare resources and passes...
 
-rg->compile();                        // once, after all passes are declared
-
-for (auto* e = rg->get_errors(); e; e = e->next)   // always check. see Debugging.
+// once, after all passes are declared. returns the error chain, and is [[nodiscard]]:
+// an unchecked compile() is how a broken frame becomes a silent black screen.
+for (auto* e = rg->compile(); e; e = e->next)      // always check. see Debugging.
     qCritical("%.*s", (int)e->message.length, e->message.data);
 
 rg->execute(device, queue, encoder, /*enableProfiling*/ false);
@@ -276,9 +282,10 @@ identity is never superseded.
 
 ### History
 
-`create_history_texture` and `create_history_buffer` return a `HistoryResource`, a pair of
-handles. Write `.curr`, read `.prev`. This frame's `.curr` becomes next frame's `.prev`. Gate
-every read of `.prev` with `ctx.history_valid(handle)`. It returns false on the frame the
+`create_history_texture` and `create_history_buffer` return a `HistoryTexture` or
+`HistoryBuffer`, a pair of handles. Write `.curr`, read `.prev`. This frame's `.curr` becomes next frame's `.prev`. Gate
+every read of `.prev` with `ctx.history_valid(history)`, passing the pair itself rather than
+either handle. It returns false on the frame the
 `.prev` object was recreated and cleared (first use, resize, reset); skip the history sample
 then. A non-zero `hash` invalidates the history whenever the hash changes.
 
@@ -302,12 +309,12 @@ flowchart LR
 `.prev` is meaningful only when last frame actually wrote `.curr` into the same pool entry. It
 is not meaningful on the first frame, the frame after a resize, or any frame the history was
 invalidated. In all of these the backing object was just recreated and holds no prior result.
-`ctx.history_valid(handle)` folds all three cases into one bool. False means skip the temporal
+`ctx.history_valid(history)` folds all three cases into one bool. False means skip the temporal
 sample this frame and fall back to the non-history path.
 
 ```cpp
 // TAA: blend with history only when it is valid, otherwise output the fresh sample as-is.
-float alpha = c.history_valid(prevHandle) ? 0.9f : 0.0f;   // 0 == ignore history
+float alpha = c.history_valid(history) ? 0.9f : 0.0f;   // 0 == ignore history
 ```
 
 Read `.prev` without this gate and the first frame, and every frame after a reset, samples
@@ -325,12 +332,11 @@ frame's pixels no longer correspond to this frame's, reprojection is worse than 
 hash that changes on the cut and history self-resets for one frame:
 
 ```cpp
-// Any value that changes exactly when temporal continuity breaks. Reuse the counter, or fold in
-// more state via fnv1a. Note fnv1a takes a string_view: give it an explicit size so embedded
-// null bytes do not truncate the hash (the const char* overload strlens).
-uint64_t cut = cameraCutCounter;  // or: fnv1a({ reinterpret_cast<const char*>(&s), sizeof(s) })
+// Any value that changes exactly when temporal continuity breaks. The graph only compares it to
+// last frame's, so how you derive it is yours: a counter you bump on the cut is enough.
+uint64_t cut = cameraCutCounter;
 auto taa = rg->create_history_texture("taa.color", desc, cut);
-// The frame `cut` changes, history_valid(taa.prev) is false, so skip the reprojected sample.
+// The frame `cut` changes, history_valid(taa) is false, so skip the reprojected sample.
 ```
 
 `hash == 0` (the default) disables hash invalidation, so history then resets only on first use
@@ -354,12 +360,14 @@ for the frame. Imports are never culled: writing an imported resource is an outp
 the frame, which is what keeps the chain feeding the swapchain alive.
 
 ```cpp
-auto swapchain = rg->import_texture("swapchain", surface_view,
-    { size.x, size.y, 1 }, surface_format);
+auto swapchain = rg->import_texture("swapchain",
+    { .view = surface_view, .size = { size.x, size.y, 1 }, .format = surface_format });
 ```
 
-Passing the backing `texture` enables the copy family and `ctx.texture()` on this handle.
-Leaving it null registers only the view, which restricts the handle to sample and attach.
+Passing the backing `texture` enables the copy family and `ctx.texture()` on this handle, and lets
+the graph build views from a declared `ViewRange` as it would for a graph-owned texture. Leaving it
+null registers only the view, which restricts the handle to sample and attach, and makes every
+subresource selection moot: `ctx.view()` returns the registered view whatever you declared.
 `mipCount`, `sampleCount`, and `dimension` default to a single-sample, single-mip 2D texture.
 Pass the real values if the source differs. `dimension` is the source texture's own dimension,
 so an array or cube source says `2D`.
@@ -542,17 +550,80 @@ indirect-arg generation, a bake nobody reads this frame), mark it `force_keep()`
 
 ---
 
+## Pass groups
+
+A `.` in a pass name creates a group. The span before the first dot is the group name, and
+passes that share it are bracketed together in GPU captures and drawn as one region in the
+RenderGraph panel. Naming costs nothing and makes a 40-pass frame readable.
+
+```cpp
+rg->add_pass("bloom.threshold", ...);
+rg->add_pass("bloom.blurH",     ...);
+rg->add_pass("bloom.blurV",     ...);
+rg->add_pass("bloom.composite", ...);
+```
+
+Grouping is a labelling feature only. It has no effect on ordering, culling, aliasing, usage
+inference, or correctness. A pass with no dot in its name belongs to no group.
+
+### What the group drives
+
+During `execute()`, the graph brackets each run of same-group passes in a command-encoder debug
+group with `wgpuCommandEncoderPushDebugGroup` and `PopDebugGroup`. A RenderDoc, PIX, or Xcode
+capture then shows `bloom` as one collapsible region containing its four passes instead of four
+unrelated entries.
+
+The panel uses the same prefix to draw the run inside one bordered region and to keep it as a
+single block in the layout, so a group stays visually together instead of being scattered by the
+dependency columns. A region needs at least two passes; a lone `bloom.threshold` draws as an
+ordinary box.
+
+### Nesting with more dots
+
+The encoder debug group uses the first segment only. The panel goes further and builds a tree
+from the remaining segments, so `bloom.down.0` and `bloom.down.1` nest under `bloom.down`, which
+nests under `bloom`. Each level collapses independently and the panel remembers the collapse
+state per prefix across frames.
+
+```cpp
+rg->add_pass("bloom.down.0", ...);   // panel: bloom > down > 0
+rg->add_pass("bloom.down.1", ...);
+rg->add_pass("bloom.up.0",   ...);   // panel: bloom > up > 0
+```
+
+As with the top level, a nested level needs at least two members to become its own subgroup.
+
+### Groups follow execution order, not declaration order
+
+The run is computed over passes in execution order, which `compile()` derives from your
+declarations. Passes sharing a prefix that do not end up scheduled next to each other produce
+two separate debug groups with the same name, not one merged region.
+
+This is usually invisible, because a group is normally a chain and a chain schedules
+consecutively. It shows up when an unrelated pass gets scheduled into the middle of a group, for
+example when a group member reads a resource produced late. If a group looks split in a capture,
+check the Graph tab for what landed between its members.
+
+Culling applies first. A culled pass is not in the execution order at all, so it contributes
+nothing to its group, and a group whose members are all culled disappears.
+
+By convention resource names use dots too, as in `gbuffer.albedo` and `clouds.lo_color`. That is
+for readability in labels and error messages. Only pass names form groups.
+
+---
+
 ## Views and ViewRange
 
 `ctx.view(h)` returns a view whose shape matches what you declared: same base mip and layer,
 same `ViewRange`. You never build a `WGPUTextureViewDescriptor`.
 
-Every read and write method takes `baseMip` and `baseLayer`. On their own they name exactly one
-subresource, and attachments render into exactly that one.
+Which subresource you mean is part of the same option struct as everything else. `sampled()` and
+the `storage_*()` family take a `ViewRange`, whose `baseMip`/`baseLayer` default to 0. Attachments
+and copies take a `Subresource` instead, since they address exactly one mip and one layer.
 
 ```cpp
-b.sampled(tex, /*baseMip*/ 2);                                         // read mip 2
-b.color(tex, 0, WGPULoadOp_Clear, WGPUStoreOp_Store, {0,0,0,1}, /*baseMip*/ 3);  // render into mip 3
+b.sampled(tex, { .baseMip = 2 });                                      // read mip 2
+b.color(tex, 0, { .sub = { .mip = 3 } });                              // render into mip 3
 // In the body, fetch a specific subresource explicitly:
 WGPUTextureView mip2 = c.view(tex, 2);        // mip 2, layer 0
 auto entry           = c.bind(0, tex, 2);     // same view, as a bind-group entry
@@ -560,8 +631,13 @@ auto entry           = c.bind(0, tex, 2);     // same view, as a bind-group entr
 
 `ViewRange` is how you name more than one subresource: a mip chain, an array slice, a cubemap,
 or a single aspect of a depth-stencil texture. It is the optional last argument of `sampled()`
-and the `storage_*()` family. Attachments do not take one, since a render target is always one
-mip and one layer. The shape you declare here is the shape `ctx.view(h)` hands back in the body.
+and the `storage_*()` family. Attachments take a `Subresource` instead, since a render target is
+always one mip and one layer.
+
+Write it with designated initializers. The fields are same-typed, so a positional
+`{ 1, 2, 0, 6 }` compiles happily while meaning something else entirely. The `cube()`,
+`cube_array()` and `whole()` helpers return a ready-made range, and `.at(mip, layer)` rebases
+one: `cube().at(0, 4)` is cube face 4. The shape you declare here is the shape `ctx.view(h)` hands back in the body.
 
 ### The default is one subresource
 
@@ -571,7 +647,7 @@ what you want.
 
 ### mipCount and layerCount count forward, and 0 means the rest
 
-Both are counts from the base, not indices. `b.sampled(tex, 2, 0, { .mipCount = 3 })` is mips 2,
+Both are counts from the base, not indices. `b.sampled(tex, { .baseMip = 2, .mipCount = 3 })` is mips 2,
 3, and 4.
 
 `0` is the useful special case: all remaining from the base. Prefer it to counting by hand. An
@@ -579,9 +655,9 @@ over-wide count is the usual cause of a `"declares a view of …"` compile error
 overrun.
 
 ```cpp
-b.sampled(prefiltered, 0, 0, { .mipCount = 0 });   // the whole mip chain
-b.sampled(cascades,    0, 0, { .layerCount = 4 }); // layers 0..3, as a 2DArray
-b.sampled(cascades,    0, 2, { .layerCount = 0 }); // layer 2 to the end
+b.sampled(prefiltered, { .mipCount = 0 });              // the whole mip chain
+b.sampled(cascades,    { .layerCount = 4 });            // layers 0..3, as a 2DArray
+b.sampled(cascades,    { .baseLayer = 2, .layerCount = 0 }); // layer 2 to the end
 ```
 
 ### dim is inferred unless you set it
@@ -596,7 +672,7 @@ cube, or to force `2DArray` over a single layer because the shader binding says
 For a combined depth-stencil format, say which plane a sampled read means:
 
 ```cpp
-b.sampled(depth, 0, 0, { .aspect = WGPUTextureAspect_DepthOnly });
+b.sampled(depth, { .aspect = WGPUTextureAspect_DepthOnly });
 ```
 
 ### Layers come from the texture, not the range
@@ -612,7 +688,7 @@ auto cascades = rg->create_transient_texture("shadow.cascades", {
     .format    = WGPUTextureFormat_Depth32Float,
     .absolute  = { 2048, 2048, /*layers*/ 4 },     // the layer count lives here
 });
-b.sampled(cascades, 0, 0, { .layerCount = 4 });    // -> 2DArray of 4
+b.sampled(cascades, { .layerCount = 4 });    // -> 2DArray of 4
 ```
 
 ### Cubes: use the helpers
@@ -622,11 +698,11 @@ source. Three constexpr helpers spell them out correctly. `whole()` is the every
 base shorthand:
 
 ```cpp
-b.sampled(envMap,      0, 0, webgpu::rg::cube());        // 6 layers, dim Cube
-b.sampled(probes,      0, 0, webgpu::rg::cube_array(4)); // 4 cubes = 24 layers
-b.sampled(prefiltered, 0, 0, webgpu::rg::whole());       // every mip and layer
+b.sampled(envMap,      webgpu::rg::cube());        // 6 layers, dim Cube
+b.sampled(probes,      webgpu::rg::cube_array(4)); // 4 cubes = 24 layers
+b.sampled(prefiltered, webgpu::rg::whole());       // every mip and layer
 // each helper also takes an aspect and a mipCount:
-b.sampled(envMap, 0, 0, webgpu::rg::cube(WGPUTextureAspect_All, /*mipCount*/ 0)); // cube + full chain
+b.sampled(envMap, webgpu::rg::cube(WGPUTextureAspect_All, /*mipCount*/ 0)); // cube + full chain
 ```
 
 `compile()` checks the rest and names the offending pass and resource: a cube covering other
@@ -641,12 +717,24 @@ A copy cannot resize, so mip generation is a blit pass per level: sample mip `i`
 mip `i+1`, same handle, two subresources. Hazard tracking is whole-resource, so the chain
 serializes level by level, which is the order you want anyway.
 
+The texture must be created with the levels it is about to fill. `TextureDesc::mipLevelCount`
+defaults to 1 and there is no `0` meaning all, so spell the chain out; a loop past the declared
+count is the `"is accessed at mip …"` compile error:
+
 ```cpp
-for (uint32_t mip = 1; mip < 8; ++mip) {
+constexpr uint32_t kMips = 8;
+auto tex = rg->create_transient_texture("prefiltered", {
+    .dimension     = WGPUTextureDimension_2D,
+    .format        = WGPUTextureFormat_RGBA16Float,
+    .absolute      = { 256, 256, 1 },
+    .mipLevelCount = kMips,          // without this the texture has one mip
+});
+
+for (uint32_t mip = 1; mip < kMips; ++mip) {
     rg->add_pass(names[mip], webgpu::rg::PassKind::Graphics, // names[] must outlive each add_pass call
         [&](webgpu::rg::PassBuilder& b) {
-            b.sampled(tex, mip - 1);                                     // read mip i-1
-            b.color(tex, 0, WGPULoadOp_Clear, WGPUStoreOp_Store, {}, mip);  // write mip i
+            b.sampled(tex, { .baseMip = mip - 1 });     // read mip i-1
+            b.color(tex, 0, { .sub = { .mip = mip } });  // write mip i
         },
         [tex, mip, layout = m_blitLayout.handle()](webgpu::rg::PassContext& c) {
             webgpu::raii::BindGroup group(c.device, layout, { c.bind(0, tex, mip - 1) }, "mip blit");
@@ -660,9 +748,10 @@ for (uint32_t mip = 1; mip < 8; ++mip) {
 
 ## Buffers
 
-Declare buffers with `create_transient_buffer`, `create_persistent_buffer`,
-`create_history_buffer`, or `import_buffer`, and a `BufferDesc { size }`. Usage flags are
-inferred from how passes declare the buffer. You never set `WGPUBufferUsage` yourself:
+Declare buffers with `create_transient_buffer`, `create_persistent_buffer`, or
+`create_history_buffer`, each taking a `BufferDesc { size }`. `import_buffer` takes the caller's
+`WGPUBuffer` instead of a desc, since the object already has its size. Usage flags are inferred
+from how passes declare the buffer. You never set `WGPUBufferUsage` yourself:
 
 | Declaration | Inferred usage | WGSL |
 | --- | --- | --- |
@@ -676,7 +765,26 @@ inferred from how passes declare the buffer. You never set `WGPUBufferUsage` you
 | `b.copy_buffer(src,dst,…)` | CopySrc / CopyDst | see copies |
 
 `ctx.buffer(h)` gives the `WGPUBuffer`, and `ctx.buffer_size(h)` its realized size.
-`ctx.bind(binding, h)` makes a whole-buffer binding at offset 0 with the realized size.
+`ctx.bind(binding, h)` makes a whole-buffer binding at offset 0 with the realized size, unless the
+declaration carried a `BufferRange` (below).
+
+### Binding a sub-range
+
+`uniform()` and the `storage_*()` buffer declarations take an optional `BufferRange { offset, size }`,
+the buffer analog of `ViewRange`: the shape you declare is the shape `ctx.bind(binding, h)` hands
+back. `size = 0` (the default) means all remaining bytes from `offset`, resolved at declare time.
+
+```cpp
+// bind the second 256-byte slice of a packed parameter buffer
+b.uniform(params, { .offset = 256, .size = 256 });
+b.storage_read(packed, { .offset = 512 });   // byte 512 to the end
+```
+
+Constraints, all checked at `compile()`: the range must fit the buffer, must not be empty, and
+`offset` must be a multiple of 256, the spec-default uniform/storage offset alignment. One range per
+buffer per pass; two bind declarations giving the same buffer different ranges is ambiguous and
+asserts in `ctx.bind`. Hazard tracking stays whole-resource, so two passes touching disjoint ranges
+of one buffer still order serially; use separate transients if that matters.
 
 ```cpp
 auto args = rg->create_transient_buffer("cull.args", { .size = 16 });
@@ -719,9 +827,9 @@ twice in a pass is an error.
 // Slot 0, clear to opaque black, keep the result:
 b.color(target, 0);                                           // defaults: Clear, Store, {0,0,0,1}
 // Draw over what a previous pass produced (composite, overlays, tracks):
-b.color(target, 0, WGPULoadOp_Load, WGPUStoreOp_Store);
+b.color(target, 0, { .load = WGPULoadOp_Load });
 // Depth attachment, reverse-Z: clear to 0.0 and pair with a Greater/GreaterEqual pipeline.
-b.depth_stencil(depth, WGPULoadOp_Clear, WGPUStoreOp_Store, /*clearDepth*/ 0.0f);
+b.depth_stencil(depth, { .clearDepth = 0.0f });
 ```
 
 A multi-target pass names one slot per `color()`, matching its fragment shader's `@location`s,
@@ -730,10 +838,10 @@ plus an optional `depth_stencil()`:
 ```cpp
 rg->add_pass("Tiles", webgpu::rg::PassKind::Graphics,
     [albedo, position, normal, gdepth](webgpu::rg::PassBuilder& b) {
-        b.color(albedo,   0, WGPULoadOp_Clear, WGPUStoreOp_Store, { 0, 0, 0, 0 });
-        b.color(position, 1, WGPULoadOp_Clear, WGPUStoreOp_Store, { 0, 0, 0, 0 });
-        b.color(normal,   2, WGPULoadOp_Clear, WGPUStoreOp_Store, { 0, 0, 0, 0 });
-        b.depth_stencil(gdepth, WGPULoadOp_Clear, WGPUStoreOp_Store, 0.0f); // reverse-Z
+        b.color(albedo,   0, { .clear = { 0, 0, 0, 0 } });
+        b.color(position, 1, { .clear = { 0, 0, 0, 0 } });
+        b.color(normal,   2, { .clear = { 0, 0, 0, 0 } });
+        b.depth_stencil(gdepth, { .clearDepth = 0.0f }); // reverse-Z
     },
     [this](webgpu::rg::PassContext& c) { /* set bind groups + pipeline; draw */ });
 ```
@@ -786,11 +894,10 @@ The stencil params default to `Undefined`, so depth-only formats are unaffected;
 
 ```cpp
 // Pass 1: write the mask (pipeline: stencil passOp = Replace, ref = 1).
-b.depth_stencil(ds, WGPULoadOp_Clear, WGPUStoreOp_Store, 1.0f, 0, 0,
-                    WGPULoadOp_Clear, WGPUStoreOp_Store, /*stencilClear*/ 0);
+b.depth_stencil(ds, { .stencilLoad = WGPULoadOp_Clear, .stencilStore = WGPUStoreOp_Store });
 // Pass 2: effect only where stencil == 1 (pipeline: compare = Equal, ref = 1).
 b.depth_stencil_read_only(ds); // test only -> reads ds, orders after the mask pass
-b.color(outColor, 0, WGPULoadOp_Load, WGPUStoreOp_Store);
+b.color(outColor, 0, { .load = WGPULoadOp_Load });
 ```
 
 `depth_stencil_read_only()` marks both depth and stencil read-only. Marking stencil read-only
@@ -937,9 +1044,10 @@ exactly on the frames that value changes. There is no dirty flag, no manual inva
 and no rebuild every frame.
 
 ```cpp
-// Rebake only when a setting that feeds the LUT changes. Explicit size on the string_view
-// so binary params with null bytes hash fully (the const char* overload would strlen).
-uint64_t sig = webgpu::rg::fnv1a({ reinterpret_cast<const char*>(&lutParams), sizeof(lutParams) });
+// Rebake only when a setting that feeds the LUT changes. Any hash over those inputs works, the
+// graph just compares it to the value stamped at the last bake:
+uint64_t sig = std::hash<std::string_view> {}(
+    { reinterpret_cast<const char*>(&lutParams), sizeof(lutParams) });  // explicit size, not strlen
 
 rg->add_pass("BakeBRDF", webgpu::rg::PassKind::Compute,
     [lut, sig](webgpu::rg::PassBuilder& b) {
@@ -982,9 +1090,9 @@ auto lit    = rg->create_transient_texture("lit.color",
 
 rg->add_pass("GBuffer", webgpu::rg::PassKind::Graphics,
     [albedo, normal, depth](webgpu::rg::PassBuilder& b) {
-        b.color(albedo, 0, WGPULoadOp_Clear, WGPUStoreOp_Store, { 0, 0, 0, 0 });
-        b.color(normal, 1, WGPULoadOp_Clear, WGPUStoreOp_Store, { 0, 0, 0, 0 });
-        b.depth_stencil(depth, WGPULoadOp_Clear, WGPUStoreOp_Store, 0.0f); // reverse-Z
+        b.color(albedo, 0, { .clear = { 0, 0, 0, 0 } });
+        b.color(normal, 1, { .clear = { 0, 0, 0, 0 } });
+        b.depth_stencil(depth, { .clearDepth = 0.0f }); // reverse-Z
     },
     [this](webgpu::rg::PassContext& c) { draw_scene(c); });
 
@@ -1031,8 +1139,8 @@ auto blurH  = rg->create_transient_texture("bloom.blur_h", halfDesc);
 auto blurV  = rg->create_transient_texture("bloom.blur_v", halfDesc);
 
 // A tiny helper: full-screen pass that samples one texture and writes another.
-auto blit_pass = [&](const char* name, webgpu::rg::ResourceHandle src,
-                     webgpu::rg::ResourceHandle dst, WGPURenderPipeline pipe) {
+auto blit_pass = [&](const char* name, webgpu::rg::TextureHandle src,
+                     webgpu::rg::TextureHandle dst, WGPURenderPipeline pipe) {
     rg->add_pass(name, webgpu::rg::PassKind::Graphics,
         [src, dst](webgpu::rg::PassBuilder& b) { b.sampled(src); b.color(dst, 0); },
         [this, src, pipe](webgpu::rg::PassContext& c) {
@@ -1043,14 +1151,14 @@ auto blit_pass = [&](const char* name, webgpu::rg::ResourceHandle src,
         });
 };
 
-blit_pass("Bloom.threshold", hdrColor, bright, m_threshold_pipe);
-blit_pass("Bloom.blurH",     bright,   blurH,  m_blur_h_pipe);
-blit_pass("Bloom.blurV",     blurH,    blurV,  m_blur_v_pipe);
+blit_pass("bloom.threshold", hdrColor, bright, m_threshold_pipe);
+blit_pass("bloom.blurH",     bright,   blurH,  m_blur_h_pipe);
+blit_pass("bloom.blurV",     blurH,    blurV,  m_blur_v_pipe);
 
 // Composite: keep the HDR target, add bloom. Additive blend lives in m_add_pipe.
-rg->add_pass("Bloom.composite", webgpu::rg::PassKind::Graphics,
+rg->add_pass("bloom.composite", webgpu::rg::PassKind::Graphics,
     [hdrColor, blurV](webgpu::rg::PassBuilder& b) {
-        b.color(hdrColor, 0, WGPULoadOp_Load, WGPUStoreOp_Store); // load, do not clear
+        b.color(hdrColor, 0, { .load = WGPULoadOp_Load }); // load, do not clear
         b.sampled(blurV);
     },
     [this, blurV](webgpu::rg::PassContext& c) {
@@ -1061,7 +1169,7 @@ rg->add_pass("Bloom.composite", webgpu::rg::PassKind::Graphics,
     });
 ```
 
-`bright` is dead after `Bloom.blurH` reads it, so the aliaser can pack `blurV` onto the same
+`bright` is dead after `bloom.blurH` reads it, so the aliaser can pack `blurV` onto the same
 memory. The three half-res targets cost one or two physical textures, not three.
 
 ### TAA: history plus a camera-cut hash
@@ -1082,7 +1190,7 @@ rg->add_pass("TAA", webgpu::rg::PassKind::Graphics,
         b.color(taa.curr, 0);     // this frame's result, becomes next frame's prev
     },
     [this, currentColor, velocity, taa](webgpu::rg::PassContext& c) {
-        float alpha = c.history_valid(taa.prev) ? 0.9f : 0.0f; // 0 == ignore history this frame
+        float alpha = c.history_valid(taa) ? 0.9f : 0.0f; // 0 == ignore history this frame
         wgpuQueueWriteBuffer(c.queue, m_taa_ubo, 0, &alpha, sizeof(alpha)); // shader reads the blend weight
         webgpu::raii::BindGroup bg(c.device, *m_taa_layout, {
             c.bind(0, currentColor), c.bind(1, velocity), c.bind(2, taa.prev),
@@ -1104,15 +1212,25 @@ Two resources with different lifetimes back image-based lighting. The environmen
 loaded once by the app and imported; the split-sum BRDF LUT is baked once into a persistent
 texture and reused every frame.
 
-An imported cubemap registers the caller's cube view directly. Sample it with a plain `sampled()`
-and no `ViewRange`: the graph returns the registered view, since subresource selection on an
-import is the caller's job. The `cube()` and `cube_array()` helpers are for graph-owned textures,
-where the graph builds the view.
+An imported cubemap registered view-only, meaning `.texture` left null, hands back the caller's
+cube view as-is. The graph never builds a view for it, so `ctx.view()` ignores any `ViewRange` you
+declared and `ctx.view(h, mip, layer)` asserts unless both are 0. Sample it with a plain
+`sampled()` and no range.
+
+`cube()` here is not merely redundant, it fails to compile the graph: the cube check validates
+against the layer count in the import's `size`, which is 1 below, so `b.sampled(env, cube())`
+errors with "(baseLayer 0 + 6 layers) exceeds the texture's 1 layer(s)". Declare the real layer
+count in `size` and it compiles, but on a view-only import the range still selects nothing. The
+`cube()` and `cube_array()` helpers are for textures the graph builds views for.
+
+That is the view-only case specifically, not imports in general. An import that does pass its
+backing `texture` takes the ordinary path: the graph builds views from the `ViewRange` you
+declare, cube helpers included, exactly as for a graph-owned texture.
 
 ```cpp
 // App owns and keeps alive a cube WGPUTextureView. Register it view-only (no backing texture).
-auto env = rg->import_texture("ibl.env", m_env_cube_view, { envSize, envSize, 1 },
-    WGPUTextureFormat_RGBA16Float);
+auto env = rg->import_texture("ibl.env",
+    { .view = m_env_cube_view, .size = { envSize, envSize, 1 }, .format = WGPUTextureFormat_RGBA16Float });
 
 // The split-sum BRDF LUT: a 2D rg16f table, baked once, then read every frame.
 auto brdfLut = rg->create_persistent_texture("ibl.brdf_lut", {
@@ -1140,7 +1258,7 @@ rg->add_pass("IBL", webgpu::rg::PassKind::Graphics,
         b.sampled(env);            // imported cube view, returned as registered
         b.sampled(brdfLut);
         b.sampled(gbuffer_normal);
-        b.color(lit, 0, WGPULoadOp_Load, WGPUStoreOp_Store);
+        b.color(lit, 0, { .load = WGPULoadOp_Load });
     },
     [this, env, brdfLut, gbuffer_normal](webgpu::rg::PassContext& c) {
         webgpu::raii::BindGroup bg(c.device, *m_ibl_layout, {
@@ -1153,12 +1271,53 @@ rg->add_pass("IBL", webgpu::rg::PassKind::Graphics,
     });
 ```
 
-For a prefiltered specular cube (one roughness level per mip), make the prefiltered map a
-persistent cube texture and bake it with `initialize()`. Storage textures cannot be cube, so
-render each face and mip as a color attachment: a pass per (mip, layer) with
-`b.color(prefiltered, 0, WGPULoadOp_Clear, WGPUStoreOp_Store, {}, mip, layer)`, all gated by
-`initialize(prefiltered)` so the whole set bakes once. Key the hash on the environment's identity
+### Prefiltered specular: bake a mip-per-roughness cube
+
+The import above is view-only, so `sampled(env)` returns whatever view the app registered and the
+graph has no say in its mip coverage. To let the graph own the roughness chain, make the
+prefiltered specular map a graph-owned persistent cube instead. Then the range you declare is
+honored, and `cube(All, 0)` binds every roughness level.
+
+Storage textures cannot be cube, so the bake renders each face and mip as a color attachment: one
+pass per (mip, layer), each declaring its own subresource write and all gating on the same
+`initialize()` target so the whole set bakes together. Key the hash on the environment's identity
 to rebake when the sky changes.
+
+```cpp
+constexpr uint32_t kFaces = 6;
+constexpr uint32_t kRoughnessMips = 5; // roughness 0..1 across the chain
+
+auto prefiltered = rg->create_persistent_texture("ibl.prefiltered", {
+    .dimension     = WGPUTextureDimension_2D,      // a cube is 2D with 6 layers
+    .format        = WGPUTextureFormat_RGBA16Float,
+    .absolute      = { 128, 128, kFaces },
+    .mipLevelCount = kRoughnessMips,               // spell the chain out, there is no 0 = all
+});
+
+uint64_t envId = m_env_cube_hash; // changes when the loaded environment changes
+for (uint32_t mip = 0; mip < kRoughnessMips; ++mip)
+    for (uint32_t face = 0; face < kFaces; ++face)
+        rg->add_pass("ibl.prefilter", webgpu::rg::PassKind::Graphics,
+            [prefiltered, mip, face](webgpu::rg::PassBuilder& b) {
+                b.color(prefiltered, 0, { .sub = { .mip = mip, .layer = face } }); // one face+mip
+                b.initialize(prefiltered, envId);   // whole set bakes once, rebakes when envId changes
+            },
+            [this, mip, face](webgpu::rg::PassContext& c) { /* draw the prefiltered face at this mip */ });
+```
+
+The lighting pass then samples it as a whole-chain cube. Because `prefiltered` is graph-owned, the
+`cube()` range is built by the graph, and `mipCount = 0` means every roughness level:
+
+```cpp
+// ...in the IBL pass setup, alongside b.sampled(env) etc.:
+b.sampled(prefiltered, webgpu::rg::cube(WGPUTextureAspect_All, /*mipCount*/ 0));
+// ...in the body:
+c.bind(4, prefiltered);   // the shader picks the mip: textureSampleLevel(cube, s, dir, roughness * maxMip)
+```
+
+Since the bakes gate on `initialize(prefiltered, envId)`, all `kFaces * kRoughnessMips` passes run
+the first frame and whenever `envId` changes, and are skipped and culled otherwise. The pooled cube
+survives, so the lighting pass keeps binding it.
 
 ---
 
@@ -1167,17 +1326,19 @@ to rebake when the sky changes.
 ### The error model
 
 Authoring errors, such as reading a transient before any pass writes it or a cyclic dependency,
-do not throw and do not return a status. Instead:
+do not throw. Instead:
 
 1. `compile()` poisons the graph, entering a Failed state.
-2. `get_errors()` returns a chain of `ErrorMessage { WGPUStringView message; ErrorMessage* next; }`,
-   null when healthy.
+2. `compile()` returns a chain of `ErrorMessage { WGPUStringView message; ErrorMessage* next; }`,
+   null when healthy. It is `[[nodiscard]]`, so ignoring it is a compiler warning. `get_errors()`
+   returns the same chain later in the same frame, for code that does not compile the graph
+   itself. The chain lives in the frame arena, so read it before the next `begin_frame()`;
+   holding it past that asserts. Copy the text out if you need it to outlive the frame.
 3. `execute()` becomes a no-op. Nothing is recorded and nothing crashes. Anything rendered
    outside the graph still works.
 
-A poisoned graph therefore shows as a black scene while the UI keeps running. Loop
-`get_errors()` after `compile()` (see [The frame loop](#the-frame-loop)); it is your only
-signal. Messages also appear as a red banner in the RenderGraph panel.
+A poisoned graph therefore shows as a black scene while the UI keeps running. Loop the chain
+`compile()` hands back (see [The frame loop](#the-frame-loop)); it is your only signal. Messages also appear as a red banner in the RenderGraph panel.
 
 ### Troubleshooting
 
@@ -1185,7 +1346,7 @@ signal. Messages also appear as a red banner in the RenderGraph panel.
 | --- | --- | --- |
 | Black scene, UI still fine | Graph poisoned; `execute()` is a no-op | Read `get_errors()` or the red banner |
 | `"read before write"` | A pass reads a transient no earlier pass writes | Add or reorder the producer, or make it an import/history/initialized resource |
-| `"accessed at mip/layer …"`, `"declares a view of …"`, `"copy … covers bytes …"` | A declared range does not fit the resource: a `baseMip`/`baseLayer` past the end, a `ViewRange` count that overruns, or a `copy_buffer` range past a buffer | Fix the range on the `b.*()` call. `mipCount`/`layerCount` of 0 (`rg::whole()`) means all remaining and always fits |
+| `"accessed at mip/layer …"`, `"declares a view of …"`, `"range … covers bytes …"`, `"starts at byte …"`, `"not 256-byte aligned"` | A declared range does not fit the resource: a `baseMip`/`baseLayer` past the end, a `ViewRange` count that overruns, a `copy_buffer` or `BufferRange` past a buffer's end, or a bind offset off the 256-byte alignment | Fix the range on the `b.*()` call. `mipCount`/`layerCount`/`size` of 0 means all remaining and always fits |
 | `"cycle"` but no real cycle | Whole-resource tracking: two passes touch disjoint ranges of the same two resources in opposite directions | Split into two handles. Transients are pooled, extra ones are nearly free |
 | Pass missing from panel/timings | Culled, nothing reads its output | `force_keep()` or `initialize()`, or wire a real consumer |
 | Crash or garbage in a bind group | Broke Rule 2 (pre-built bind group over a transient) | Build it inside the execute body from `ctx.bind` |

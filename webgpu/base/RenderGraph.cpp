@@ -1,3 +1,21 @@
+/*****************************************************************************
+ * Copyright (C) 2026 Matthias Huerbe
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *****************************************************************************/
+
+
 #include "RenderGraph.h"
 #include "RenderGraph_internal.h"
 #include "gpu_utils.h"
@@ -240,7 +258,7 @@ void PersistentResourcePool::end_frame()
         if (evictClock - e->lastTouched >= kRetain)
         {
             destroy(e);
-            *pp = e->next; // unlink
+            *pp = e->next;
             e->next = freeList; // recycle
             freeList = e;
         } else {
@@ -413,7 +431,7 @@ void TransientResourcePool::end_frame()
         if (superseded || frame - e->lastUsedFrame >= kRetain) {
             log_event(Event::Evict, *e);
             destroy(e);
-            *pp = e->next; // unlink
+            *pp = e->next;
             e->next = freeList; // recycle
             freeList = e;
         } else {
@@ -664,7 +682,7 @@ ResourceId StringInterner::intern(std::string_view s)
     Node*& head = buckets[h & (kBuckets - 1)];
     for (Node* n = head; n; n = n->next)
         if (n->hash == h && n->name.length == s.length()
-            && std::memcmp(n->name.data, s.data(), s.length()) == 0)
+            && (s.empty() || std::memcmp(n->name.data, s.data(), s.length()) == 0)) // empty view may carry a null data
             return { n->hash, n->name };
 
     Node* n = arena->make<Node>();
@@ -775,38 +793,172 @@ WGPUStringView pass_name_at(PassNode* head, uint32_t idx)
     return WGPUStringView {};
 }
 
-uint32_t texel_bytes(WGPUTextureFormat f)
+// block size in texels (1x1 for uncompressed) plus bytes per block
+TexelBlock format_block(WGPUTextureFormat f)
 {
-    switch (f) {
+    switch (f)
+    {
+    // 8-bit
     case WGPUTextureFormat_R8Unorm:
+    case WGPUTextureFormat_R8Snorm:
     case WGPUTextureFormat_R8Uint:
+    case WGPUTextureFormat_R8Sint:
     case WGPUTextureFormat_Stencil8:
-        return 1;
+        return { 1, 1, 1 };
+
+    // 16-bit
+    case WGPUTextureFormat_R16Uint:
+    case WGPUTextureFormat_R16Sint:
     case WGPUTextureFormat_R16Float:
+
     case WGPUTextureFormat_RG8Unorm:
+    case WGPUTextureFormat_RG8Snorm:
+    case WGPUTextureFormat_RG8Uint:
+    case WGPUTextureFormat_RG8Sint:
+
     case WGPUTextureFormat_Depth16Unorm:
-        return 2;
-    case WGPUTextureFormat_RGBA8Unorm:
-    case WGPUTextureFormat_BGRA8Unorm:
-    case WGPUTextureFormat_RG16Float:
+        return { 1, 1, 2 };
+
+    // 32-bit
     case WGPUTextureFormat_R32Float:
-    case WGPUTextureFormat_Depth32Float:
+    case WGPUTextureFormat_R32Uint:
+    case WGPUTextureFormat_R32Sint:
+
+    case WGPUTextureFormat_RG16Uint:
+    case WGPUTextureFormat_RG16Sint:
+    case WGPUTextureFormat_RG16Float:
+
+    case WGPUTextureFormat_RGBA8Unorm:
+    case WGPUTextureFormat_RGBA8UnormSrgb:
+    case WGPUTextureFormat_RGBA8Snorm:
+    case WGPUTextureFormat_RGBA8Uint:
+    case WGPUTextureFormat_RGBA8Sint:
+
+    case WGPUTextureFormat_BGRA8Unorm:
+    case WGPUTextureFormat_BGRA8UnormSrgb:
+
+    case WGPUTextureFormat_RGB10A2Uint:
+    case WGPUTextureFormat_RGB10A2Unorm:
+    case WGPUTextureFormat_RG11B10Ufloat:
+
     case WGPUTextureFormat_Depth24Plus:
-        return 4;
-    case WGPUTextureFormat_RGBA16Float:
+    case WGPUTextureFormat_Depth32Float:
+        return { 1, 1, 4 };
+
+    // 64-bit
     case WGPUTextureFormat_RG32Float:
-        return 8;
+    case WGPUTextureFormat_RG32Uint:
+    case WGPUTextureFormat_RG32Sint:
+
+    case WGPUTextureFormat_RGBA16Uint:
+    case WGPUTextureFormat_RGBA16Sint:
+    case WGPUTextureFormat_RGBA16Float:
+
+    case WGPUTextureFormat_Depth24PlusStencil8:
+    case WGPUTextureFormat_Depth32FloatStencil8:
+        return { 1, 1, 8 };
+
+    // 128-bit
     case WGPUTextureFormat_RGBA32Float:
-        return 16;
+    case WGPUTextureFormat_RGBA32Uint:
+    case WGPUTextureFormat_RGBA32Sint:
+        return { 1, 1, 16 };
+
+
+    // BC1 / BC4: 8 bytes per 4x4 block
+    case WGPUTextureFormat_BC1RGBAUnorm:
+    case WGPUTextureFormat_BC1RGBAUnormSrgb:
+    case WGPUTextureFormat_BC4RUnorm:
+    case WGPUTextureFormat_BC4RSnorm:
+        return { 4, 4, 8 };
+
+    // BC2/3/5/6H/7: 16 bytes per 4x4 block
+    case WGPUTextureFormat_BC2RGBAUnorm:
+    case WGPUTextureFormat_BC2RGBAUnormSrgb:
+    case WGPUTextureFormat_BC3RGBAUnorm:
+    case WGPUTextureFormat_BC3RGBAUnormSrgb:
+    case WGPUTextureFormat_BC5RGUnorm:
+    case WGPUTextureFormat_BC5RGSnorm:
+    case WGPUTextureFormat_BC6HRGBUfloat:
+    case WGPUTextureFormat_BC6HRGBFloat:
+    case WGPUTextureFormat_BC7RGBAUnorm:
+    case WGPUTextureFormat_BC7RGBAUnormSrgb:
+        return { 4, 4, 16 };
+
+
+    // ETC2 RGB8 / RGB8A1 and EAC R11: 8 bytes per 4x4 block
+    case WGPUTextureFormat_ETC2RGB8Unorm:
+    case WGPUTextureFormat_ETC2RGB8UnormSrgb:
+    case WGPUTextureFormat_ETC2RGB8A1Unorm:
+    case WGPUTextureFormat_ETC2RGB8A1UnormSrgb:
+    case WGPUTextureFormat_EACR11Unorm:
+    case WGPUTextureFormat_EACR11Snorm:
+        return { 4, 4, 8 };
+
+    // ETC2 RGBA8 and EAC RG11: 16 bytes per 4x4 block
+    case WGPUTextureFormat_ETC2RGBA8Unorm:
+    case WGPUTextureFormat_ETC2RGBA8UnormSrgb:
+    case WGPUTextureFormat_EACRG11Unorm:
+    case WGPUTextureFormat_EACRG11Snorm:
+        return { 4, 4, 16 };
+
+
+    // ASTC: always 16 bytes per block, block footprint read straight off the enum name
+    case WGPUTextureFormat_ASTC4x4Unorm:
+    case WGPUTextureFormat_ASTC4x4UnormSrgb:   return { 4, 4, 16 };
+    case WGPUTextureFormat_ASTC5x4Unorm:
+    case WGPUTextureFormat_ASTC5x4UnormSrgb:   return { 5, 4, 16 };
+    case WGPUTextureFormat_ASTC5x5Unorm:
+    case WGPUTextureFormat_ASTC5x5UnormSrgb:   return { 5, 5, 16 };
+    case WGPUTextureFormat_ASTC6x5Unorm:
+    case WGPUTextureFormat_ASTC6x5UnormSrgb:   return { 6, 5, 16 };
+    case WGPUTextureFormat_ASTC6x6Unorm:
+    case WGPUTextureFormat_ASTC6x6UnormSrgb:   return { 6, 6, 16 };
+    case WGPUTextureFormat_ASTC8x5Unorm:
+    case WGPUTextureFormat_ASTC8x5UnormSrgb:   return { 8, 5, 16 };
+    case WGPUTextureFormat_ASTC8x6Unorm:
+    case WGPUTextureFormat_ASTC8x6UnormSrgb:   return { 8, 6, 16 };
+    case WGPUTextureFormat_ASTC8x8Unorm:
+    case WGPUTextureFormat_ASTC8x8UnormSrgb:   return { 8, 8, 16 };
+    case WGPUTextureFormat_ASTC10x5Unorm:
+    case WGPUTextureFormat_ASTC10x5UnormSrgb:  return { 10, 5, 16 };
+    case WGPUTextureFormat_ASTC10x6Unorm:
+    case WGPUTextureFormat_ASTC10x6UnormSrgb:  return { 10, 6, 16 };
+    case WGPUTextureFormat_ASTC10x8Unorm:
+    case WGPUTextureFormat_ASTC10x8UnormSrgb:  return { 10, 8, 16 };
+    case WGPUTextureFormat_ASTC10x10Unorm:
+    case WGPUTextureFormat_ASTC10x10UnormSrgb: return { 10, 10, 16 };
+    case WGPUTextureFormat_ASTC12x10Unorm:
+    case WGPUTextureFormat_ASTC12x10UnormSrgb: return { 12, 10, 16 };
+    case WGPUTextureFormat_ASTC12x12Unorm:
+    case WGPUTextureFormat_ASTC12x12UnormSrgb: return { 12, 12, 16 };
+
     default:
-        return 4;
+        break;
     }
+
+    return { 0, 0, 0 };
 }
 
-uint64_t texture_bytes(WGPUExtent3D size, WGPUTextureFormat format)
+// exact size of one texture
+uint64_t texture_bytes(WGPUExtent3D size, WGPUTextureFormat format, uint32_t mipLevelCount,
+    uint32_t sampleCount, WGPUTextureDimension dim)
 {
-    uint32_t layers = size.depthOrArrayLayers ? size.depthOrArrayLayers : 1;
-    return (uint64_t)size.width * size.height * layers * texel_bytes(format);
+    const TexelBlock b = format_block(format);
+    if (!b.bytes) return 0;
+    const bool is3D = dim == WGPUTextureDimension_3D;
+    const uint32_t layers = is3D ? 1u : (size.depthOrArrayLayers ? size.depthOrArrayLayers : 1);
+    const uint32_t samples = sampleCount ? sampleCount : 1;
+    uint64_t total = 0;
+    for (uint32_t m = 0; m < mipLevelCount; ++m) {
+        const uint32_t w = (size.width  >> m) ? (size.width  >> m) : 1u;
+        const uint32_t h = (size.height >> m) ? (size.height >> m) : 1u;
+        const uint32_t d = is3D ? ((size.depthOrArrayLayers >> m) ? (size.depthOrArrayLayers >> m) : 1u) : 1u;
+        const uint32_t bw = (w + b.w - 1) / b.w;
+        const uint32_t bh = (h + b.h - 1) / b.h;
+        total += (uint64_t)bw * bh * d * layers * samples * b.bytes;
+    }
+    return total;
 }
 
 } // namespace Internal
@@ -888,11 +1040,11 @@ GraphAllocator* create_allocator()
     allocator->front.reserve();
     allocator->scratch.reserve();
     allocator->persist.reserve();
-    allocator->names.arena = &allocator->persist; // interned names + nodes bump from persist, freed at destroy
-    allocator->pool.arena = &allocator->persist; // both pools bump their Entry cells from persist
+    allocator->names.arena = &allocator->persist;
+    allocator->pool.arena = &allocator->persist;
     allocator->transient.arena = &allocator->persist;
-    allocator->subviews.arena = &allocator->persist; // subview nodes bump from persist too
-    allocator->pool.subviewPool = &allocator->subviews; // destroy() recycles subview nodes here
+    allocator->subviews.arena = &allocator->persist;
+    allocator->pool.subviewPool = &allocator->subviews;
     allocator->transient.subviewPool = &allocator->subviews;
     return allocator;
 }
@@ -921,11 +1073,7 @@ void end_frame(GraphAllocator* allocator)
 RenderGraph* start_recording(GraphAllocator* allocator)
 {
     Q_ASSERT(allocator);
-    struct RGPair {
-        RenderGraph rg;
-        RenderGraphStorage st;
-    };
-    RGPair* pair = allocator->make<RGPair>();
+    Internal::GraphPair* pair = allocator->make<Internal::GraphPair>();
     RenderGraph* rg = &pair->rg;
     RenderGraphStorage* st = &pair->st;
     Q_ASSERT(st == storage(rg) && "storage must sit immediately after the RenderGraph");
@@ -998,6 +1146,10 @@ static void validate_texture_desc(const TextureDesc& desc)
         "The render graph does not support 1d textures, use 2d textures instead");
     Q_ASSERT_X(desc.relativeTo.id == 0 || (desc.scaleX > 0.0f && desc.scaleY > 0.0f), "validate_texture_desc",
         "When relative to another texture it cannot be a scale of 0");
+    Q_ASSERT_X(desc.sizeKind != SizeKind::Relative || desc.relativeTo.id != 0, "validate_texture_desc",
+        "SizeKind::Relative needs a relativeTo handle to size against, otherwise it resolves to nothing");
+    Q_ASSERT_X(desc.sizeKind != SizeKind::Absolute || (desc.absolute.width && desc.absolute.height), "validate_texture_desc",
+        "SizeKind::Absolute needs a non-zero width and height in TextureDesc.absolute");
     Q_ASSERT_X(desc.sampleCount == 1 || desc.sampleCount == 4, "validate_texture_desc",
         "WebGPU(1.0) only supports MSAA samples of 1 or 4.");
     Q_ASSERT_X(desc.dimension != WGPUTextureDimension_3D || desc.sampleCount == 1, "validate_texture_desc",
@@ -1025,7 +1177,7 @@ static TexSignature tex_signature(const ResourceNode* r)
     return TexSignature { r->resolved, r->format, r->dimension, r->mipLevelCount, r->sampleCount };
 }
 
-ResourceHandle RenderGraph::create_transient_texture(std::string_view id, const TextureDesc& desc)
+TextureHandle RenderGraph::create_transient_texture(std::string_view id, const TextureDesc& desc)
 {
     RenderGraphStorage& s = *storage(this);
     Q_ASSERT(s.m_state == RenderGraphState::Recording && "Render graph is in read only mode after compile()");
@@ -1043,10 +1195,10 @@ ResourceHandle RenderGraph::create_transient_texture(std::string_view id, const 
 
     list_append(&s.m_resouces, &s.m_resoucesTail, resouce);
 
-    return resouce->handle;
+    return TextureHandle { resouce->handle };
 }
 
-ResourceHandle RenderGraph::create_transient_buffer(std::string_view id, const BufferDesc& desc)
+BufferHandle RenderGraph::create_transient_buffer(std::string_view id, const BufferDesc& desc)
 {
     RenderGraphStorage& s = *storage(this);
     Q_ASSERT(s.m_state == RenderGraphState::Recording && "Render graph is in read only mode after compile()");
@@ -1063,13 +1215,19 @@ ResourceHandle RenderGraph::create_transient_buffer(std::string_view id, const B
 
     list_append(&s.m_resouces, &s.m_resoucesTail, resouce);
 
-    return resouce->handle;
+    return BufferHandle { resouce->handle };
 }
 
-ResourceHandle RenderGraph::import_texture(std::string_view id, WGPUTextureView view, WGPUExtent3D size,
-    WGPUTextureFormat format, WGPUTexture texture, uint32_t mipCount, uint32_t sampleCount,
-    WGPUTextureDimension dimension)
+TextureHandle RenderGraph::import_texture(std::string_view id, const ImportTextureDesc& desc)
 {
+    const WGPUTextureView view = desc.view;
+    const WGPUExtent3D size = desc.size;
+    const WGPUTextureFormat format = desc.format;
+    WGPUTexture texture = desc.texture;
+    const uint32_t mipCount = desc.mipCount;
+    const uint32_t sampleCount = desc.sampleCount;
+    const WGPUTextureDimension dimension = desc.dimension;
+
     RenderGraphStorage& s = *storage(this);
     Q_ASSERT(s.m_state == RenderGraphState::Recording && "Render graph is in read only mode after compile()");
 
@@ -1081,6 +1239,7 @@ ResourceHandle RenderGraph::import_texture(std::string_view id, WGPUTextureView 
     resouce->handle = create_handle(s, ResourceKind::Texture);
     resouce->id = rid;
     resouce->kind = ResourceKind::Texture;
+    Q_ASSERT(view && "import_texture: ImportTextureDesc.view is required");
     Q_ASSERT(format != WGPUTextureFormat_Undefined && "import_texture: pass the imported view's format");
     resouce->imported = true;
     resouce->view = view;
@@ -1100,13 +1259,14 @@ ResourceHandle RenderGraph::import_texture(std::string_view id, WGPUTextureView 
 
     list_append(&s.m_resouces, &s.m_resoucesTail, resouce);
 
-    return resouce->handle;
+    return TextureHandle { resouce->handle };
 }
 
-ResourceHandle RenderGraph::import_buffer(std::string_view id, WGPUBuffer buffer)
+BufferHandle RenderGraph::import_buffer(std::string_view id, WGPUBuffer buffer)
 {
     RenderGraphStorage& s = *storage(this);
     Q_ASSERT(s.m_state == RenderGraphState::Recording && "Render graph is in read only mode after compile()");
+    Q_ASSERT(buffer && "import_buffer: null buffer; wgpuBufferGetSize below would dereference it");
 
     const ResourceId rid = intern_id(*s.m_allocator, id);
     assert_unique_id(s, rid);
@@ -1122,10 +1282,10 @@ ResourceHandle RenderGraph::import_buffer(std::string_view id, WGPUBuffer buffer
 
     list_append(&s.m_resouces, &s.m_resoucesTail, resouce);
 
-    return resouce->handle;
+    return BufferHandle { resouce->handle };
 }
 
-HistoryResource RenderGraph::create_history_texture(std::string_view id, const TextureDesc& desc, uint64_t hash)
+HistoryTexture RenderGraph::create_history_texture(std::string_view id, const TextureDesc& desc, uint64_t hash)
 {
     RenderGraphStorage& s = *storage(this);
     Q_ASSERT(s.m_state == RenderGraphState::Recording && "Render graph is in read only mode after compile()");
@@ -1134,7 +1294,7 @@ HistoryResource RenderGraph::create_history_texture(std::string_view id, const T
     assert_unique_id(s, rid);
     Q_ASSERT((desc.relativeTo.id == 0 || desc.relativeTo.generation == s.generation) && "TextureDesc.relativeTo is a stale/foreign handle");
 
-    HistoryResource out {};
+    HistoryTexture out {};
     for (uint32_t i = 0; i < PersistentResourcePool::kLayers; ++i)
     {
         ResourceNode* resouce = s.m_allocator->make<ResourceNode>();
@@ -1148,15 +1308,14 @@ HistoryResource RenderGraph::create_history_texture(std::string_view id, const T
         apply_texture_desc(resouce, desc);
         list_append(&s.m_resouces, &s.m_resoucesTail, resouce);
         if (i == 0)
-            out.curr = resouce->handle;
+            out.curr = TextureHandle { resouce->handle };
         else
-            out.prev = resouce->handle;
+            out.prev = TextureHandle { resouce->handle };
     }
     return out;
 }
 
-
-HistoryResource RenderGraph::create_history_buffer(std::string_view id, const BufferDesc& desc, uint64_t hash)
+HistoryBuffer RenderGraph::create_history_buffer(std::string_view id, const BufferDesc& desc, uint64_t hash)
 {
     RenderGraphStorage& s = *storage(this);
     Q_ASSERT(s.m_state == RenderGraphState::Recording && "Render graph is in read only mode after compile()");
@@ -1164,7 +1323,7 @@ HistoryResource RenderGraph::create_history_buffer(std::string_view id, const Bu
     const ResourceId rid = intern_id(*s.m_allocator, id);
     assert_unique_id(s, rid);
 
-    HistoryResource out {};
+    HistoryBuffer out {};
     for (uint32_t i = 0; i < PersistentResourcePool::kLayers; ++i)
     {
         ResourceNode* resouce = s.m_allocator->make<ResourceNode>();
@@ -1178,15 +1337,15 @@ HistoryResource RenderGraph::create_history_buffer(std::string_view id, const Bu
         resouce->bufferSize = desc.size;
         list_append(&s.m_resouces, &s.m_resoucesTail, resouce);
         if (i == 0)
-            out.curr = resouce->handle;
+            out.curr = BufferHandle { resouce->handle };
         else
-            out.prev = resouce->handle;
+            out.prev = BufferHandle { resouce->handle };
     }
     return out;
 }
 
 
-ResourceHandle RenderGraph::create_persistent_buffer(std::string_view id, const BufferDesc& desc)
+BufferHandle RenderGraph::create_persistent_buffer(std::string_view id, const BufferDesc& desc)
 {
     RenderGraphStorage& s = *storage(this);
     Q_ASSERT(s.m_state == RenderGraphState::Recording && "Render graph is in read only mode after compile()");
@@ -1202,11 +1361,11 @@ ResourceHandle RenderGraph::create_persistent_buffer(std::string_view id, const 
     resouce->historyIndex = 0; // the only layer
     resouce->bufferSize = desc.size;
     list_append(&s.m_resouces, &s.m_resoucesTail, resouce);
-    return resouce->handle;
+    return BufferHandle { resouce->handle };
 }
 
 
-ResourceHandle RenderGraph::create_persistent_texture(std::string_view id, const TextureDesc& desc)
+TextureHandle RenderGraph::create_persistent_texture(std::string_view id, const TextureDesc& desc)
 {
     RenderGraphStorage& s = *storage(this);
     Q_ASSERT(s.m_state == RenderGraphState::Recording && "Render graph is in read only mode after compile()");
@@ -1223,7 +1382,7 @@ ResourceHandle RenderGraph::create_persistent_texture(std::string_view id, const
     resouce->historyIndex = 0; // the only layer
     apply_texture_desc(resouce, desc);
     list_append(&s.m_resouces, &s.m_resoucesTail, resouce);
-    return resouce->handle;
+    return TextureHandle { resouce->handle };
 }
 
 static bool is_depth_format(WGPUTextureFormat f)
@@ -1241,9 +1400,25 @@ static bool is_depth_format(WGPUTextureFormat f)
     }
 }
 
-ResourceHandle RenderGraph::create_initialized_texture(std::string_view id, const TextureDesc& desc, WGPUColor fill)
+static bool format_has_stencil(WGPUTextureFormat f)
 {
-    ResourceHandle h = create_persistent_texture(id, desc);
+    switch (f)
+    {
+    case WGPUTextureFormat_Stencil8:
+    case WGPUTextureFormat_Depth24PlusStencil8:
+    case WGPUTextureFormat_Depth32FloatStencil8:
+        return true;
+    default:
+        return false;
+    }
+}
+
+TextureHandle RenderGraph::create_initialized_texture(std::string_view id, const TextureDesc& desc, WGPUColor fill)
+{
+    // the fill is a clear on a render target, and the graph cannot render into a 3D texture
+    Q_ASSERT_X(desc.dimension != WGPUTextureDimension_3D, "create_initialized_texture",
+        "3D textures cannot be cleared this way, the graph cannot use them as render targets");
+    TextureHandle h = create_persistent_texture(id, desc);
     uint32_t layers = desc.absolute.depthOrArrayLayers ? desc.absolute.depthOrArrayLayers : 1;
     bool depth = is_depth_format(desc.format);
     Arena& scratch = storage(this)->m_allocator->scratch;
@@ -1263,9 +1438,9 @@ ResourceHandle RenderGraph::create_initialized_texture(std::string_view id, cons
             PassKind::Graphics,
             [h, depth, fill, layer](PassBuilder& b) {
                 if (depth)
-                    b.depth_stencil(h, WGPULoadOp_Clear, WGPUStoreOp_Store, (float)fill.r, 0, layer);
+                    b.depth_stencil(h, { .clearDepth = (float)fill.r, .sub = { .layer = layer } });
                 else
-                    b.color(h, 0, WGPULoadOp_Clear, WGPUStoreOp_Store, fill, 0, layer);
+                    b.color(h, 0, { .clear = fill, .sub = { .layer = layer } });
                 b.initialize(h);
             },
             [](PassContext&) {});
@@ -1273,11 +1448,11 @@ ResourceHandle RenderGraph::create_initialized_texture(std::string_view id, cons
     return h;
 }
 
-ResourceHandle RenderGraph::create_initialized_buffer(std::string_view id, const BufferDesc& desc, const void* data)
+BufferHandle RenderGraph::create_initialized_buffer(std::string_view id, const BufferDesc& desc, const void* data)
 {
-    ResourceHandle h = create_persistent_buffer(id, desc);
+    BufferHandle h = create_persistent_buffer(id, desc);
     RenderGraphStorage& s = *storage(this);
-    // push data onto the storage otherwise its gone
+    // copy into the arena, the caller's data does not outlive this call
     uint8_t* bytes = s.m_allocator->alloc<uint8_t>(desc.size);
     if (data)
         std::memcpy(bytes, data, desc.size);
@@ -1293,7 +1468,7 @@ ResourceHandle RenderGraph::create_initialized_buffer(std::string_view id, const
     return h;
 }
 
-PassBuilder RenderGraph::begin_pass(std::string_view id, PassKind kind)
+void RenderGraph::begin_pass(PassBuilder& builder, std::string_view id, PassKind kind)
 {
     RenderGraphStorage& s = *storage(this);
     Q_ASSERT(s.m_state == RenderGraphState::Recording && "Render graph is in read only mode after compile()");
@@ -1301,10 +1476,8 @@ PassBuilder RenderGraph::begin_pass(std::string_view id, PassKind kind)
     pass->id = intern_id(*s.m_allocator, id);
     pass->kind = kind;
 
-    PassBuilder builder;
     builder.m_pass = pass;
     builder.m_graph = this;
-    return builder;
 }
 
 void RenderGraph::end_pass(PassBuilder& builder)
@@ -1445,24 +1618,38 @@ static bool is_sink(PassNode* p, const bool* sinkRoot)
 
 static WGPUExtent3D resolve_size(ResourceNode* r, RenderGraphStorage& s)
 {
-    if (r->resolved.width)
+    if (r->imported || r->resolved.width)
         return r->resolved;
-    if (r->sizeKind == SizeKind::Absolute)
-        return r->resolved = r->absolute;
+    if (r->sizeKind == SizeKind::Absolute) {
+        r->resolved = r->absolute;
+        if (!r->resolved.depthOrArrayLayers)
+            r->resolved.depthOrArrayLayers = 1; // 0 layers means 1 everywhere else, see node_layers()
+        return r->resolved;
+    }
     if (r->resolving) {
         push_error(s,
-            "resource \"%.*s\" sits on a cyclic relativeTo chain; a relative size must "
+            "resource \"%.*s\" sits on a cyclic relativeTo chain. A relative size must "
             "eventually resolve against an absolutely sized resource.",
             RG_NAME(r->id));
         return WGPUExtent3D {};
     }
+
+    ResourceNode* base = r->relativeToHandle.id ? s.byId[r->relativeToHandle.id] : nullptr;
+    if (!base) {
+        push_error(s,
+            "resource \"%.*s\" is SizeKind::Relative but names no resource to size against. "
+            "set TextureDesc.relativeTo, or use SizeKind::Absolute.",
+            RG_NAME(r->id));
+        return r->resolved = WGPUExtent3D {};
+    }
     r->resolving = true;
-    ResourceNode* base = s.byId[r->relativeToHandle.id];
-    WGPUExtent3D b = base ? resolve_size(base, s) : WGPUExtent3D {};
+    WGPUExtent3D b = resolve_size(base, s);
     r->resolving = false;
     uint32_t layers = r->absolute.depthOrArrayLayers ? r->absolute.depthOrArrayLayers : 1;
-    // round, don't truncate
-    return r->resolved = { (uint32_t)(b.width * r->scaleX + 0.5f), (uint32_t)(b.height * r->scaleY + 0.5f), layers };
+    // round, don't truncate. clamp to 1
+    uint32_t w = (uint32_t)(b.width * r->scaleX + 0.5f);
+    uint32_t h = (uint32_t)(b.height * r->scaleY + 0.5f);
+    return r->resolved = { w ? w : 1u, h ? h : 1u, layers };
 }
 
 static void detect_transient_attachments(RenderGraphStorage& s)
@@ -1503,7 +1690,8 @@ static void validate_history_layers(RenderGraphStorage& s)
         if (!r->history || r->historyIndex != 0)
             continue; // anchor on .curr, skip .prev and single-layer persistent
         ResourceNode* prev = r->next; // .prev (layer 1) was appended right after .curr
-        if (!prev || !prev->history || prev->id.value != r->id.value || prev->historyIndex != 1) {
+        // both ids are interned, so canonical pointers match exactly where hashes could collide
+        if (!prev || !prev->history || prev->id.name.data != r->id.name.data || prev->historyIndex != 1) {
             push_error(s,
                 "history resource \"%.*s\": its .curr and .prev layer nodes are not adjacent in "
                 "declaration order. This is an internal error, not an authoring one.",
@@ -1526,24 +1714,28 @@ static void validate_cube_views(RenderGraphStorage& s);
 // validate every access's subresource / byte range against the resource it names
 static void validate_access_ranges(RenderGraphStorage& s);
 
-void RenderGraph::compile(bool enableAlias)
+// validate the render-pass descriptor each Graphics pass will build: attachment sizes and sample counts,
+// resolve pairs, depth-stencil formats
+static void validate_render_passes(RenderGraphStorage& s);
+
+// compile()
+static void compile_impl(RenderGraph* graph, bool enableAlias)
 {
     auto t0 = std::chrono::steady_clock::now();
-    RenderGraphStorage& s = *storage(this);
+    RenderGraphStorage& s = *storage(graph);
     if (s.m_state != RenderGraphState::Recording) {
         static constexpr const char* kStateName[] = { "recording", "compiled", "failed", "finished" };
-        push_error(s, "compile() called on a graph that is already %s; compile() runs once per recording.",
+        push_error(s, "compile() called on a graph that is already %s. compile() runs once per recording.",
             kStateName[(int)s.m_state]);
         return;
     }
 
-    // a handle this frame's graph did not create. out of range would index the phase 1/2 scratch tables
-    // out of bounds, so this is a release-safe backstop, not an assert.
+    // a handle this frame's graph did not create
     auto foreign = [&s](ResourceHandle h) { return h.id >= s.next_resource_id || h.generation != s.generation; };
 
     uint32_t passIndex = 0;
     for (PassNode* p = s.m_passes; p; p = p->next) {
-        p->index = passIndex++; // dense declaration-order index, stable through the sweep (relink is later)
+        p->index = passIndex++;
         for (uint32_t i = 0; i < p->accessCount; ++i) {
             ResourceHandle h = p->accesses[i].handle;
             if (h.id == 0 || foreign(h)) {
@@ -1559,17 +1751,15 @@ void RenderGraph::compile(bool enableAlias)
             ResourceHandle t = p->initTargets[i].target;
             if (foreign(t)) {
                 push_error(s,
-                    "pass \"%.*s\" initialize() target handle (id %u) is from another graph or a "
-                    "previous frame.",
+                    "pass \"%.*s\" initialize() target handle (id %u) is from another graph or a previous frame.",
                     RG_NAME(p->id),
                     t.id);
                 return;
             }
         }
     }
-    s.passCount = passIndex; // every pass has a stable index, and passCount sizes the sweep's dedup stamp
+    s.passCount = passIndex;
 
-    // same backstop for relativeTo, which resolve_size() indexes unguarded. id 0 means absolute-sized.
     for (ResourceNode* r = s.m_resouces; r; r = r->next) {
         ResourceHandle rel = r->relativeToHandle;
         if (rel.id != 0 && foreign(rel)) {
@@ -1640,7 +1830,7 @@ void RenderGraph::compile(bool enableAlias)
         return;
 
     // phase 1: build the dependency DAG in the "depends-on" direction. reads before any writer get no edge
-    // here, the post-cull pass below turns them into errors.
+    // here, the post-cull pass turns them into errors.
     sweep_resource_versions(s.m_allocator->scratch, s.m_passes, s.next_resource_id, s.passCount, s.m_allocator);
 
     // phase 2: cull dead passes and topo sort, fused into one DFS seeded from sinks.
@@ -1682,9 +1872,9 @@ void RenderGraph::compile(bool enableAlias)
         s.m_passesTail = count ? order[count - 1] : nullptr;
     }
 
-    // post-cull validation over the final schedule: reading a transient no earlier surviving pass has
-    // produced samples uninitialized pool contents. external resources are exempt, their value comes from
-    // outside the frame. bails before phase 3, so a misordered graph never reaches realize().
+    // post-cull validation over the final schedule: reading a transient no earlier surviving pass produced
+    // samples uninitialized pool contents. external resources are exempt, their value comes from outside
+    // the frame. bails before phase 3, so a misordered graph never reaches realize().
     {
         ScopedScratch ss(s.m_allocator->scratch);
         bool* produced = ss.alloc<bool>(s.next_resource_id); // a surviving pass has written it so far
@@ -1782,6 +1972,23 @@ void RenderGraph::compile(bool enableAlias)
         if (s.m_state == RenderGraphState::Failed) // a cyclic relativeTo chain leaves sizes unresolved
             return;
 
+        // a zero extent would reach wgpuDeviceCreateTexture and surface as a device validation error with
+        // no link back to the descriptor that caused it.
+        for (ResourceNode* r = s.m_resouces; r; r = r->next) {
+            if (r->kind != ResourceKind::Texture || !r->texUsage)
+                continue;
+            if (r->resolved.width && r->resolved.height)
+                continue;
+            push_error(s,
+                "resource \"%.*s\" resolves to a zero extent (%u x %u); a texture needs a non-zero width "
+                "and height. Check its TextureDesc.absolute, or the relativeTo base it scales against.",
+                RG_NAME(r->id),
+                r->resolved.width,
+                r->resolved.height);
+        }
+        if (s.m_state == RenderGraphState::Failed)
+            return;
+
         // NOTE(Huerbe): usage==0 here == untouched by a live pass -> realize() skips it = free
         // dead-resource culling. no separate resource liveness list needed.
     }
@@ -1791,13 +1998,19 @@ void RenderGraph::compile(bool enableAlias)
     if (s.m_state == RenderGraphState::Failed)
         return;
 
-    // reject misauthored cube/cubearray views (needs the resolved layer counts from phase 3).
+    // reject misauthored cube/cubearray views (needs the resolved layer counts from phase-3).
     validate_cube_views(s);
     if (s.m_state == RenderGraphState::Failed)
         return;
 
     // reject accesses whose subresource/byte range does not fit the resource (same phase-3 dependency).
     validate_access_ranges(s);
+    if (s.m_state == RenderGraphState::Failed)
+        return;
+
+    // reject render passes WebGPU would refuse. runs after the range checks, so the attachment subresources
+    // it measures are already known to be in range.
+    validate_render_passes(s);
     if (s.m_state == RenderGraphState::Failed)
         return;
 
@@ -1851,7 +2064,7 @@ void RenderGraph::compile(bool enableAlias)
                 if (sig && ph.freeFrom < r->firstUse) {
                     slot = k;
                     break;
-                } // STRICT: no shared pass
+                } // no shared pass
             }
             if (slot == ResourceNode::kNoSlot) {
                 slot = s.m_slotCount++;
@@ -1879,9 +2092,21 @@ void RenderGraph::compile(bool enableAlias)
     s.m_state = (s.m_errors == nullptr) ? RenderGraphState::Compiled : RenderGraphState::Failed;
 }
 
+ErrorMessage* RenderGraph::compile(bool enableAlias)
+{
+    compile_impl(this, enableAlias);
+    return get_errors();
+}
+
 static uint32_t node_layers(const ResourceNode* r)
 {
     return (r->dimension == WGPUTextureDimension_2D) ? (r->resolved.depthOrArrayLayers ? r->resolved.depthOrArrayLayers : 1) : 1;
+}
+
+static uint32_t mip_dim(uint32_t v, uint32_t mip)
+{
+    v >>= mip;
+    return v ? v : 1;
 }
 
 static void validate_cube_views(RenderGraphStorage& s)
@@ -1919,6 +2144,145 @@ static void validate_cube_views(RenderGraphStorage& s)
         }
 }
 
+// render-pass rules WebGPU enforces on the descriptor execute() builds. checking them here names the pass
+// and the resources that disagree, where the device can only name the descriptor it was handed.
+static void validate_render_passes(RenderGraphStorage& s)
+{
+    struct Att {
+        const ResourceAccess* a;
+        ResourceNode* r;
+    };
+
+    // an attachment view is a single mip, so its size is that mip's size
+    auto att_w = [](const Att& t) { return mip_dim(t.r->resolved.width, t.a->baseMip); };
+    auto att_h = [](const Att& t) { return mip_dim(t.r->resolved.height, t.a->baseMip); };
+
+    for (PassNode* p = s.m_passes; p; p = p->next) {
+        if (p->kind != PassKind::Graphics)
+            continue;
+
+        Att color[kMaxColorAttachments] {};
+        uint32_t colorCount = 0;
+        Att resolve[kMaxColorAttachments] {};
+        uint32_t resolveCount = 0;
+        Att depth {};
+        bool hasDepth = false;
+
+        for (uint32_t i = 0; i < p->accessCount; ++i) {
+            const ResourceAccess& a = p->accesses[i];
+            ResourceNode* r = s.byId[a.handle.id];
+            if (!r)
+                continue;
+            const Att t { &a, r };
+            if (a.type == AccessType::ColorAttachment && colorCount < kMaxColorAttachments)
+                color[colorCount++] = t;
+            else if (a.type == AccessType::ResolveAttachment && resolveCount < kMaxColorAttachments)
+                resolve[resolveCount++] = t;
+            else if (a.type == AccessType::DepthStencilAttachment || a.type == AccessType::DepthStencilReadOnly) {
+                depth = t;
+                hasDepth = true;
+            } else
+                continue;
+
+            // execute() always leaves depthSlice at UNDEFINED, which WebGPU requires a 3D color target to
+            // set, so a 3D attachment can never be valid here
+            if (r->dimension == WGPUTextureDimension_3D)
+                push_error(s,
+                    "pass \"%.*s\": resource \"%.*s\" is a 3D texture used as a render target; the graph "
+                    "does not set depthSlice, so it cannot render into one. Use a 2D array texture.",
+                    RG_NAME(p->id), RG_NAME(r->id));
+        }
+
+        if (!colorCount && !hasDepth) {
+            push_error(s,
+                "pass \"%.*s\" is a Graphics pass with no attachments; a render pass needs at least one "
+                "color() or a depth_stencil(). Use PassKind::Compute if the pass records no draws.",
+                RG_NAME(p->id));
+            continue;
+        }
+
+        // every color and depth attachment shares one size and sample count. resolve targets are excluded,
+        // they are single-sample by definition and checked against their own color below.
+        const Att& ref = colorCount ? color[0] : depth;
+        auto check_against_ref = [&](const Att& t) {
+            if (att_w(t) != att_w(ref) || att_h(t) != att_h(ref))
+                push_error(s,
+                    "pass \"%.*s\": attachment \"%.*s\" is %u x %u but \"%.*s\" is %u x %u; every "
+                    "attachment in a render pass must be the same size.",
+                    RG_NAME(p->id), RG_NAME(t.r->id), att_w(t), att_h(t), RG_NAME(ref.r->id), att_w(ref), att_h(ref));
+            if (t.r->sampleCount != ref.r->sampleCount)
+                push_error(s,
+                    "pass \"%.*s\": attachment \"%.*s\" has %u sample(s) but \"%.*s\" has %u; every "
+                    "attachment in a render pass must have the same sample count.",
+                    RG_NAME(p->id), RG_NAME(t.r->id), t.r->sampleCount, RG_NAME(ref.r->id), ref.r->sampleCount);
+        };
+        for (uint32_t i = 0; i < colorCount; ++i)
+            check_against_ref(color[i]);
+        if (hasDepth)
+            check_against_ref(depth);
+
+        if (hasDepth) {
+            const ResourceAccess& a = *depth.a;
+            if (!is_depth_format(depth.r->format))
+                push_error(s,
+                    "pass \"%.*s\": resource \"%.*s\" is bound as the depth-stencil attachment but its "
+                    "format is not a depth format.",
+                    RG_NAME(p->id), RG_NAME(depth.r->id));
+            else {
+                const bool stencilOps = a.stencilLoadOp != WGPULoadOp_Undefined || a.stencilStoreOp != WGPUStoreOp_Undefined;
+                const bool hasStencil = format_has_stencil(depth.r->format);
+                if (stencilOps && !hasStencil)
+                    push_error(s,
+                        "pass \"%.*s\": depth-stencil attachment \"%.*s\" declares stencil load/store ops "
+                        "but its format has no stencil aspect.",
+                        RG_NAME(p->id), RG_NAME(depth.r->id));
+                // read-only binds both aspects read-only, so WebGPU asks for no ops at all
+                if (!stencilOps && hasStencil && a.type == AccessType::DepthStencilAttachment)
+                    push_error(s,
+                        "pass \"%.*s\": depth-stencil attachment \"%.*s\" has a stencil aspect, so WebGPU "
+                        "requires stencil load/store ops; pass them to depth_stencil().",
+                        RG_NAME(p->id), RG_NAME(depth.r->id));
+            }
+        }
+
+        // a resolve target takes the multisampled colour of the slot it was declared against
+        for (uint32_t i = 0; i < resolveCount; ++i) {
+            const Att& t = resolve[i];
+            const Att* src = nullptr;
+            for (uint32_t k = 0; k < colorCount; ++k)
+                if (color[k].a->colorIndex == t.a->colorIndex) {
+                    src = &color[k];
+                    break;
+                }
+            if (!src)
+                continue; // resolve() rejects a src that is not a color() in this pass
+            if (src->r->sampleCount <= 1)
+                push_error(s,
+                    "pass \"%.*s\": \"%.*s\" resolves \"%.*s\", which has %u sample(s); a resolve source "
+                    "must be multisampled.",
+                    RG_NAME(p->id), RG_NAME(t.r->id), RG_NAME(src->r->id), src->r->sampleCount);
+            if (t.r->sampleCount != 1)
+                push_error(s,
+                    "pass \"%.*s\": resolve target \"%.*s\" has %u sample(s); a resolve target must be "
+                    "single-sampled.",
+                    RG_NAME(p->id), RG_NAME(t.r->id), t.r->sampleCount);
+            if (t.r->format != src->r->format)
+                push_error(s,
+                    "pass \"%.*s\": resolve target \"%.*s\" and its source \"%.*s\" must have the same "
+                    "format.",
+                    RG_NAME(p->id), RG_NAME(t.r->id), RG_NAME(src->r->id));
+            if (att_w(t) != att_w(*src) || att_h(t) != att_h(*src))
+                push_error(s,
+                    "pass \"%.*s\": resolve target \"%.*s\" is %u x %u but its source \"%.*s\" is %u x %u; "
+                    "they must be the same size.",
+                    RG_NAME(p->id), RG_NAME(t.r->id), att_w(t), att_h(t), RG_NAME(src->r->id), att_w(*src), att_h(*src));
+        }
+    }
+}
+
+// true for the access types whose declared BufferRange ctx.bind() applies
+static bool is_bind_access(AccessType t) { return t == AccessType::Uniform || t == AccessType::StorageRead || t == AccessType::StorageWrite; }
+
 static void validate_access_ranges(RenderGraphStorage& s)
 {
     for (PassNode* p = s.m_passes; p; p = p->next)
@@ -1954,9 +2318,20 @@ static void validate_access_ranges(RenderGraphStorage& s)
             if (!a.bufSize && !a.bufOffset)
                 continue;
             if (a.bufOffset + a.bufSize > r->bufferSize)
-                push_error(s, "pass \"%.*s\": copy on \"%.*s\" covers bytes [%llu, %llu) but the buffer is %llu byte(s).",
+                push_error(s, "pass \"%.*s\": range on \"%.*s\" covers bytes [%llu, %llu) but the buffer is %llu byte(s).",
                     RG_NAME(p->id), RG_NAME(r->id), (unsigned long long)a.bufOffset, (unsigned long long)(a.bufOffset + a.bufSize),
                     (unsigned long long)r->bufferSize);
+            if (is_bind_access(a.type)) {
+                // a declared offset at or past the end resolves to a zero-byte range
+                if (!a.bufSize)
+                    push_error(s, "pass \"%.*s\": range on \"%.*s\" starts at byte %llu but the buffer is %llu byte(s).",
+                        RG_NAME(p->id), RG_NAME(r->id), (unsigned long long)a.bufOffset, (unsigned long long)r->bufferSize);
+                // 256 is the spec-default minUniform/StorageBufferOffsetAlignment. the graph checks
+                // the portable default rather than querying device limits.
+                if (a.bufOffset % 256 != 0)
+                    push_error(s, "pass \"%.*s\": binding range on \"%.*s\" starts at byte %llu, which is not 256-byte aligned.",
+                        RG_NAME(p->id), RG_NAME(r->id), (unsigned long long)a.bufOffset);
+            }
         }
 }
 
@@ -2059,10 +2434,20 @@ static const ResourceAccess* find_copy_access(PassNode* pass, ResourceHandle h, 
     return found;
 }
 
-static uint32_t mip_dim(uint32_t v, uint32_t mip)
+// finds the bind-type access for h
+static const ResourceAccess* find_bind_access(PassNode* pass, ResourceHandle h)
 {
-    v >>= mip;
-    return v ? v : 1;
+    const ResourceAccess* found = nullptr;
+    for (uint32_t i = 0; i < pass->accessCount; ++i)
+    {
+        const ResourceAccess& a = pass->accesses[i];
+        if (a.handle.id != h.id || !is_bind_access(a.type))
+            continue;
+        Q_ASSERT((!found || (found->bufOffset == a.bufOffset && found->bufSize == a.bufSize))
+            && "ctx.bind: two bind declarations give the same buffer different ranges in this pass; ambiguous bind");
+        found = &a;
+    }
+    return found;
 }
 
 static WGPUExtent3D copy_extent_for(RenderGraph* graph, PassNode* pass, ResourceHandle h, bool wantDst)
@@ -2071,12 +2456,15 @@ static WGPUExtent3D copy_extent_for(RenderGraph* graph, PassNode* pass, Resource
     ResourceNode* r = find_node(graph, h);
     Q_ASSERT(r != nullptr && "failed to find node! Handle is 0 or from another graph");
     const ResourceAccess* a = find_copy_access(pass, h, wantDst, "copy_extent: no matching copy declared with this handle in this pass");
-    return WGPUExtent3D {
-        mip_dim(r->resolved.width, a->baseMip), mip_dim(r->resolved.height, a->baseMip), r->resolved.depthOrArrayLayers ? r->resolved.depthOrArrayLayers : 1
-    };
+    uint32_t depth;
+    if (r->dimension == WGPUTextureDimension_3D)
+        depth = mip_dim(r->resolved.depthOrArrayLayers, a->baseMip); // baseLayer is 0 here, node_layers() reports 1 for 3D so validate_access_ranges rejects any other
+    else
+        depth = a->layerCount ? a->layerCount : (node_layers(r) - a->baseLayer); // 0 == all remaining
+    return WGPUExtent3D { mip_dim(r->resolved.width, a->baseMip), mip_dim(r->resolved.height, a->baseMip), depth };
 }
 
-bool PassContext::history_valid(ResourceHandle h) const
+static bool history_valid_impl(RenderGraph* graph, ResourceHandle h)
 {
     ResourceNode* r = find_node(graph, h);
     Q_ASSERT(r != nullptr && "ctx: failed to find node! Handle is 0 or from another graph");
@@ -2086,7 +2474,12 @@ bool PassContext::history_valid(ResourceHandle h) const
     return r->historyValid;
 }
 
-WGPUTextureView PassContext::view(ResourceHandle h) const
+bool PassContext::history_valid_impl(ResourceHandle prev) const
+{
+    return webgpu::rg::history_valid_impl(graph, prev);
+}
+
+WGPUTextureView PassContext::view(TextureHandle h) const
 {
     Q_ASSERT(h.id != 0);
     Q_ASSERT(h.kind == ResourceKind::Texture && "ctx.view: only textures can create a view");
@@ -2136,7 +2529,7 @@ static bool subres_declared(const PassNode* pass, const ResourceNode* r, Resourc
     return false;
 }
 
-WGPUTextureView PassContext::view(ResourceHandle h, uint32_t mip, uint32_t layer) const
+WGPUTextureView PassContext::view(TextureHandle h, uint32_t mip, uint32_t layer) const
 {
     Q_ASSERT(h.id != 0);
     Q_ASSERT(h.kind == ResourceKind::Texture && "ctx.view: only textures can create a view");
@@ -2166,7 +2559,7 @@ WGPUTextureView PassContext::view(ResourceHandle h, uint32_t mip, uint32_t layer
     return resolve_view(*storage(graph), r, key);
 }
 
-WGPUTexture PassContext::texture(ResourceHandle h) const
+WGPUTexture PassContext::texture(TextureHandle h) const
 {
     Q_ASSERT(h.id != 0);
     Q_ASSERT(h.kind == ResourceKind::Texture);
@@ -2179,7 +2572,7 @@ WGPUTexture PassContext::texture(ResourceHandle h) const
     return r->texture;
 }
 
-WGPUBuffer PassContext::buffer(ResourceHandle h) const
+WGPUBuffer PassContext::buffer(BufferHandle h) const
 {
     Q_ASSERT(h.id != 0);
     Q_ASSERT(h.kind == ResourceKind::Buffer);
@@ -2196,18 +2589,21 @@ WGPUBuffer PassContext::buffer(ResourceHandle h) const
 WGPUBindGroupEntry PassContext::bind(uint32_t binding, ResourceHandle h) const
 {
     if (h.kind == ResourceKind::Texture)
-        return webgpu::bind(binding, view(h));
+        return webgpu::bind(binding, view(TextureHandle { h }));
     ResourceNode* r = find_node(graph, h);
     Q_ASSERT(r != nullptr && "failed to find node! Handle is 0 or from another graph");
-    return webgpu::bind(binding, buffer(h), 0, r ? r->bufferSize : 0);
+    const ResourceAccess* a = find_bind_access(pass, h);
+    if (a && a->bufSize)
+        return webgpu::bind(binding, buffer(BufferHandle { h }), a->bufOffset, a->bufSize);
+    return webgpu::bind(binding, buffer(BufferHandle { h }), 0, r ? r->bufferSize : 0);
 }
 
-WGPUBindGroupEntry PassContext::bind(uint32_t binding, ResourceHandle h, uint32_t mip, uint32_t layer) const
+WGPUBindGroupEntry PassContext::bind(uint32_t binding, TextureHandle h, uint32_t mip, uint32_t layer) const
 {
     return webgpu::bind(binding, view(h, mip, layer));
 }
 
-WGPUExtent3D PassContext::texture_size(ResourceHandle h) const
+WGPUExtent3D PassContext::texture_size(TextureHandle h) const
 {
     Q_ASSERT(h.id != 0);
     Q_ASSERT(h.kind == ResourceKind::Texture);
@@ -2219,7 +2615,7 @@ WGPUExtent3D PassContext::texture_size(ResourceHandle h) const
     return r->resolved;
 }
 
-WGPUExtent3D PassContext::texture_size(ResourceHandle h, uint32_t mip) const
+WGPUExtent3D PassContext::texture_size(TextureHandle h, uint32_t mip) const
 {
     Q_ASSERT(h.id != 0);
     Q_ASSERT(h.kind == ResourceKind::Texture);
@@ -2235,7 +2631,7 @@ WGPUExtent3D PassContext::texture_size(ResourceHandle h, uint32_t mip) const
     return WGPUExtent3D { mip_dim(r->resolved.width, mip), mip_dim(r->resolved.height, mip), d };
 }
 
-WGPUTextureFormat PassContext::format(ResourceHandle h) const
+WGPUTextureFormat PassContext::format(TextureHandle h) const
 {
     Q_ASSERT(h.id != 0);
     Q_ASSERT(h.kind == ResourceKind::Texture);
@@ -2248,7 +2644,7 @@ WGPUTextureFormat PassContext::format(ResourceHandle h) const
     return r->format;
 }
 
-uint32_t PassContext::mip_count(ResourceHandle h) const
+uint32_t PassContext::mip_count(TextureHandle h) const
 {
     Q_ASSERT(h.id != 0);
     Q_ASSERT(h.kind == ResourceKind::Texture);
@@ -2261,7 +2657,7 @@ uint32_t PassContext::mip_count(ResourceHandle h) const
     return r->mipLevelCount;
 }
 
-uint32_t PassContext::sample_count(ResourceHandle h) const
+uint32_t PassContext::sample_count(TextureHandle h) const
 {
     Q_ASSERT(h.id != 0);
     Q_ASSERT(h.kind == ResourceKind::Texture);
@@ -2274,7 +2670,7 @@ uint32_t PassContext::sample_count(ResourceHandle h) const
     return r->sampleCount;
 }
 
-uint64_t PassContext::buffer_size(ResourceHandle h) const
+uint64_t PassContext::buffer_size(BufferHandle h) const
 {
     Q_ASSERT(h.id != 0);
     Q_ASSERT(h.kind == ResourceKind::Buffer);
@@ -2286,7 +2682,7 @@ uint64_t PassContext::buffer_size(ResourceHandle h) const
     return r->bufferSize;
 }
 
-PassContext::BufferCopyInfo PassContext::buffer_copy_info(ResourceHandle src, ResourceHandle dst) const
+PassContext::BufferCopyInfo PassContext::buffer_copy_info(BufferHandle src, BufferHandle dst) const
 {
     Q_ASSERT(src.id != 0 && dst.id != 0);
     Q_ASSERT(src.kind == ResourceKind::Buffer && dst.kind == ResourceKind::Buffer && "buffer_copy_info: both handles must be buffers");
@@ -2318,27 +2714,27 @@ static WGPUTexelCopyTextureInfo copy_texture_info(RenderGraph* graph, PassNode* 
     return WGPUTexelCopyTextureInfo { .texture = r->texture, .mipLevel = a->baseMip, .origin = origin, .aspect = aspect };
 }
 
-WGPUTexelCopyTextureInfo PassContext::copy_src_info(ResourceHandle h, WGPUOrigin3D origin, WGPUTextureAspect aspect) const
+WGPUTexelCopyTextureInfo PassContext::copy_src_info(TextureHandle h, WGPUOrigin3D origin, WGPUTextureAspect aspect) const
 {
     return copy_texture_info(graph, pass, h, false, origin, aspect);
 }
 
-WGPUTexelCopyTextureInfo PassContext::copy_dst_info(ResourceHandle h, WGPUOrigin3D origin, WGPUTextureAspect aspect) const
+WGPUTexelCopyTextureInfo PassContext::copy_dst_info(TextureHandle h, WGPUOrigin3D origin, WGPUTextureAspect aspect) const
 {
     return copy_texture_info(graph, pass, h, true, origin, aspect);
 }
 
-WGPUExtent3D PassContext::copy_extent_src(ResourceHandle h) const
+WGPUExtent3D PassContext::copy_extent_src(TextureHandle h) const
 {
     return copy_extent_for(graph, pass, h, false);
 }
 
-WGPUExtent3D PassContext::copy_extent_dst(ResourceHandle h) const
+WGPUExtent3D PassContext::copy_extent_dst(TextureHandle h) const
 {
     return copy_extent_for(graph, pass, h, true);
 }
 
-WGPUTexelCopyBufferInfo PassContext::copy_src_buffer(ResourceHandle h, WGPUTexelCopyBufferLayout layout) const
+WGPUTexelCopyBufferInfo PassContext::copy_src_buffer(BufferHandle h, WGPUTexelCopyBufferLayout layout) const
 {
     Q_ASSERT(h.id != 0);
     Q_ASSERT(h.kind == ResourceKind::Buffer);
@@ -2346,7 +2742,7 @@ WGPUTexelCopyBufferInfo PassContext::copy_src_buffer(ResourceHandle h, WGPUTexel
     return WGPUTexelCopyBufferInfo { .layout = layout, .buffer = buffer(h) };
 }
 
-WGPUTexelCopyBufferInfo PassContext::copy_dst_buffer(ResourceHandle h, WGPUTexelCopyBufferLayout layout) const
+WGPUTexelCopyBufferInfo PassContext::copy_dst_buffer(BufferHandle h, WGPUTexelCopyBufferLayout layout) const
 {
     Q_ASSERT(h.id != 0);
     Q_ASSERT(h.kind == ResourceKind::Buffer);
@@ -2356,7 +2752,6 @@ WGPUTexelCopyBufferInfo PassContext::copy_dst_buffer(ResourceHandle h, WGPUTexel
 
 static void release_resources(RenderGraph* rg);
 
-// utility
 static constexpr bool is_mappable(WGPUBufferUsage usage)
 {
     return (usage & (WGPUBufferUsage_MapRead | WGPUBufferUsage_MapWrite)) != 0;
@@ -2439,9 +2834,9 @@ static void realize_graph(RenderGraph* rg, WGPUDevice device)
         r->historyValid = r->history && (e->createdClock != pool.evictClock) && (e->prevTouched == pool.evictClock - 1);
     }
 
-    // aliasing (compile() phase 4): acquire one pooled object per slot with the union usage, then point
-    // every member at it. one acquire per slot, not per member, keeps the claim count right. m_slotCount
-    // is 0 when aliasing is off, leaving the per-resource loops below to realize each transient alone.
+    // aliasing (compile() phase 4): one acquire per slot with the union usage, then point every member at
+    // it. per slot, not per member, keeps the claim count right. m_slotCount is 0 when aliasing is off,
+    // leaving the loops below to realize each transient alone.
     for (uint32_t i = 0; i < s.m_slotCount; ++i) {
         PhysicalResource& ph = s.m_slots[i];
         if (ph.kind == ResourceKind::Texture) {
@@ -2592,11 +2987,12 @@ void RenderGraph::execute(WGPUDevice device, WGPUQueue queue, WGPUCommandEncoder
             p->exec_fn(p->exec_obj, ctx);
             wgpuComputePassEncoderEnd(ctx.compute_pass);
             wgpuComputePassEncoderRelease(ctx.compute_pass);
-        } else if (p->kind == PassKind::Graphics && p->exec_fn) {
+        } else if (p->kind == PassKind::Graphics) {
+            // no exec_fn guard: a body-less graphics pass still begins and ends, so its clear loadOps run
             // gather declared attachments from the access list -> WebGPU render pass descriptor
             WGPURenderPassColorAttachment color[kMaxColorAttachments] {};
-            // color() slots may be sparse, so pre-seed every entry as a valid null attachment. zero-init
-            // covers the rest, but depthSlice needs the UNDEFINED sentinel.
+            // color() slots may be sparse, so pre-seed every entry as a valid null attachment. depthSlice
+            // is the one field whose null value is not 0.
             for (uint32_t i = 0; i < kMaxColorAttachments; ++i)
                 color[i].depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
             uint32_t maxColorSlot = 0; // highest explicit slot seen -> colorAttachmentCount = maxColorSlot + 1
@@ -2656,7 +3052,8 @@ void RenderGraph::execute(WGPUDevice device, WGPUQueue queue, WGPUCommandEncoder
                 .timestampWrites = timeThis ? &tw : nullptr,
             };
             ctx.render_pass = wgpuCommandEncoderBeginRenderPass(encoder, &rd);
-            p->exec_fn(p->exec_obj, ctx);
+            if (p->exec_fn)
+                p->exec_fn(p->exec_obj, ctx);
             wgpuRenderPassEncoderEnd(ctx.render_pass);
             wgpuRenderPassEncoderRelease(ctx.render_pass);
         } else { // Transfer: body records straight onto the encoder. no pass object -> bracket with encoder timestamps.
@@ -2676,8 +3073,7 @@ void RenderGraph::execute(WGPUDevice device, WGPUQueue queue, WGPUCommandEncoder
         if (timeThis)
             ++pi;
 
-        // free the pass-scoped subresource views, attachments and ctx.view() alike. every pass kind, so
-        // ctx.view() auto-releases in compute and transfer too.
+        // free the pass-scoped subresource views, attachments and ctx.view() alike
         for (uint32_t i = 0; i < s.viewScratchN; ++i)
             wgpuTextureViewRelease(s.viewScratch[i]);
     }
@@ -2722,7 +3118,7 @@ void RenderGraph::collect_gpu_timings()
                 for (uint32_t i = 0; i < slot->count; ++i) {
                     const uint64_t b = t[2 * i], e = t[2 * i + 1];
                     prof->resultUs[i] = (e > b) ? float((e - b) / 1000.0) : 0.0f; // ns -> us; clamp reorders
-                    prof->resultNames[i] = slot->names[i]; // interned view; copying the ring slot's is a stable pointer copy
+                    prof->resultNames[i] = slot->names[i]; // interned, so it outlives the slot's reuse
                 }
                 ++prof->resultId; // signal the history sampler that a fresh read-back landed
             }
@@ -2738,7 +3134,6 @@ void RenderGraph::collect_gpu_timings()
 ErrorMessage* RenderGraph::get_errors() const
 {
     RenderGraphStorage& s = *storage(const_cast<RenderGraph*>(this));
-    // the chain lives in the front arena, so begin_frame() takes it with the graph
     Q_ASSERT(s.frameId == s.m_allocator->frameId && "get_errors(): graph outlived its frame, read errors before the next begin_frame()");
     return s.m_errors;
 }
@@ -2764,7 +3159,27 @@ static void release_resources(RenderGraph* rg)
     s.m_allocator->transient.release_claims();
 }
 
-static void use(PassBuilder& b,
+// which resource kind an access is legal
+static constexpr bool access_allows_kind(AccessType t, ResourceKind k)
+{
+    switch (t) {
+    case AccessType::ColorAttachment:
+    case AccessType::DepthStencilAttachment:
+    case AccessType::DepthStencilReadOnly:
+    case AccessType::ResolveAttachment:
+    case AccessType::Sampled:
+        return k == ResourceKind::Texture;
+    case AccessType::Uniform:
+    case AccessType::Vertex:
+    case AccessType::Index:
+    case AccessType::Indirect:
+        return k == ResourceKind::Buffer;
+    default: // StorageRead/Write, CopySrc/Dst: both kinds are legal
+        return true;
+    }
+}
+
+static void use(PassNode* pass, RenderGraph* graph,
     ResourceHandle handle,
     AccessType type,
     WGPULoadOp load = WGPULoadOp_Undefined,
@@ -2778,10 +3193,10 @@ static void use(PassBuilder& b,
     WGPUStoreOp stencilStore = WGPUStoreOp_Undefined,
     uint32_t stencilClear = 0)
 {
-    PassNode* pass = b.m_pass;
     Q_ASSERT(handle.id != 0);
-    Q_ASSERT(handle.id < storage(b.m_graph)->next_resource_id && "stale or foreign ResourceHandle; not created by this frame's graph");
-    Q_ASSERT(handle.generation == storage(b.m_graph)->generation && "stale/foreign ResourceHandle: not created by this graph");
+    Q_ASSERT(handle.id < storage(graph)->next_resource_id && "stale or foreign ResourceHandle; not created by this frame's graph");
+    Q_ASSERT(handle.generation == storage(graph)->generation && "stale/foreign ResourceHandle: not created by this graph");
+    Q_ASSERT(access_allows_kind(type, handle.kind) && "handle kind disagrees with this access; a handle was converted across kinds");
 
     // WebGPU permits several writable-storage uses in one scope. the graph is stricter, it cannot
     // synchronize two writes inside a pass. Transfer passes are exempt, each copy is its own usage scope.
@@ -2812,7 +3227,7 @@ static void use(PassBuilder& b,
         }
 
     if (pass->accessCount == pass->accessCap) {
-        GraphAllocator* A = storage(b.m_graph)->m_allocator;
+        GraphAllocator* A = storage(graph)->m_allocator;
         uint32_t oldCap = pass->accessCap;
         uint32_t newCap = oldCap ? oldCap * 2 : 4;
         ResourceAccess* buf = nullptr;
@@ -2847,10 +3262,15 @@ static void use(PassBuilder& b,
     };
 }
 
-void PassBuilder::color(ResourceHandle handle, uint32_t attachmentIndex, WGPULoadOp load, WGPUStoreOp store, WGPUColor clear, uint32_t baseMip, uint32_t baseLayer)
+void PassBuilder::color(TextureHandle handle, uint32_t attachmentIndex, ColorAttachment a)
 {
+    const WGPULoadOp load = a.load;
+    const WGPUStoreOp store = a.store;
+    const WGPUColor clear = a.clear;
+    const uint32_t baseMip = a.sub.mip;
+    const uint32_t baseLayer = a.sub.layer;
+
     Q_ASSERT(handle.id != 0);
-    Q_ASSERT(handle.kind == ResourceKind::Texture);
     Q_ASSERT(m_pass->kind == PassKind::Graphics && "color attachment is only legal for graphics passes.");
 
     if (attachmentIndex >= kMaxColorAttachments) {
@@ -2874,15 +3294,17 @@ void PassBuilder::color(ResourceHandle handle, uint32_t attachmentIndex, WGPULoa
             return;
         }
 
-    use(*this, handle, AccessType::ColorAttachment, load, store, clear, {}, baseMip, baseLayer);
+    use(m_pass, m_graph, handle, AccessType::ColorAttachment, load, store, clear, {}, baseMip, baseLayer);
     m_pass->accesses[m_pass->accessCount - 1].colorIndex = uint8_t(attachmentIndex);
 }
 
-void PassBuilder::resolve(ResourceHandle src, ResourceHandle target, uint32_t baseMip, uint32_t baseLayer)
+void PassBuilder::resolve(TextureHandle src, TextureHandle target, Subresource sub)
 {
+    const uint32_t baseMip = sub.mip;
+    const uint32_t baseLayer = sub.layer;
+
     Q_ASSERT(src.id != 0);
     Q_ASSERT(target.id != 0);
-    Q_ASSERT(target.kind == ResourceKind::Texture);
     Q_ASSERT(m_pass->kind == PassKind::Graphics && "resolve target is only legal for graphics passes.");
 
     uint8_t srcSlot = 0;
@@ -2912,7 +3334,7 @@ void PassBuilder::resolve(ResourceHandle src, ResourceHandle target, uint32_t ba
             return;
         }
 
-    use(*this, target, AccessType::ResolveAttachment, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, baseMip, baseLayer);
+    use(m_pass, m_graph, target, AccessType::ResolveAttachment, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, baseMip, baseLayer);
     m_pass->accesses[m_pass->accessCount - 1].colorIndex = srcSlot;
 }
 
@@ -2929,109 +3351,150 @@ static void assert_single_depth(PassNode* pass)
     }
 }
 
-void PassBuilder::depth_stencil(ResourceHandle handle,
-    WGPULoadOp load,
-    WGPUStoreOp store,
-    float clearDepth,
-    uint32_t baseMip,
-    uint32_t baseLayer,
-    WGPULoadOp stencilLoad,
-    WGPUStoreOp stencilStore,
-    uint32_t stencilClear)
+void PassBuilder::depth_stencil(TextureHandle handle, DepthStencilAttachment a)
 {
+    const WGPULoadOp load = a.load;
+    const WGPUStoreOp store = a.store;
+    const float clearDepth = a.clearDepth;
+    const uint32_t baseMip = a.sub.mip;
+    const uint32_t baseLayer = a.sub.layer;
+    const WGPULoadOp stencilLoad = a.stencilLoad;
+    const WGPUStoreOp stencilStore = a.stencilStore;
+    const uint32_t stencilClear = a.stencilClear;
+
     Q_ASSERT(handle.id != 0);
-    Q_ASSERT(handle.kind == ResourceKind::Texture);
     Q_ASSERT(m_pass->kind == PassKind::Graphics && "depth-stencil attachment is only legal for graphics passes.");
     assert_single_depth(m_pass);
-    use(*this, handle, AccessType::DepthStencilAttachment, load, store, {}, clearDepth, baseMip, baseLayer, {}, stencilLoad, stencilStore, stencilClear);
+    use(m_pass, m_graph, handle, AccessType::DepthStencilAttachment, load, store, {}, clearDepth, baseMip, baseLayer, {}, stencilLoad, stencilStore, stencilClear);
 }
 
-void PassBuilder::depth_stencil_read_only(ResourceHandle handle, uint32_t baseMip, uint32_t baseLayer)
+void PassBuilder::depth_stencil_read_only(TextureHandle handle, Subresource sub)
 {
+    const uint32_t baseMip = sub.mip;
+    const uint32_t baseLayer = sub.layer;
+
     Q_ASSERT(handle.id != 0);
-    Q_ASSERT(handle.kind == ResourceKind::Texture);
     Q_ASSERT(m_pass->kind == PassKind::Graphics && "depth-stencil attachment is only legal for graphics passes.");
     assert_single_depth(m_pass);
-    use(*this, handle, AccessType::DepthStencilReadOnly, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, baseMip, baseLayer);
+    use(m_pass, m_graph, handle, AccessType::DepthStencilReadOnly, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, baseMip, baseLayer);
 }
 
-void PassBuilder::sampled(ResourceHandle handle, uint32_t baseMip, uint32_t baseLayer, ViewRange range)
+void PassBuilder::sampled(TextureHandle handle, ViewRange range)
+{
+    const uint32_t baseMip = range.baseMip;
+    const uint32_t baseLayer = range.baseLayer;
+
+    Q_ASSERT(handle.id != 0);
+    use(m_pass, m_graph, handle, AccessType::Sampled, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, baseMip, baseLayer, range);
+}
+
+void PassBuilder::storage_read(TextureHandle handle, ViewRange range)
+{
+    const uint32_t baseMip = range.baseMip;
+    const uint32_t baseLayer = range.baseLayer;
+
+    Q_ASSERT(handle.id != 0);
+    use(m_pass, m_graph, handle, AccessType::StorageRead, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, baseMip, baseLayer, range);
+}
+
+void PassBuilder::storage_write(TextureHandle handle, ViewRange range)
+{
+    const uint32_t baseMip = range.baseMip;
+    const uint32_t baseLayer = range.baseLayer;
+
+    Q_ASSERT(handle.id != 0);
+    use(m_pass, m_graph, handle, AccessType::StorageWrite, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, baseMip, baseLayer, range);
+}
+
+void PassBuilder::storage_read_write(TextureHandle handle, ViewRange range)
 {
     Q_ASSERT(handle.id != 0);
-    Q_ASSERT(handle.kind == ResourceKind::Texture);
-    use(*this, handle, AccessType::Sampled, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, baseMip, baseLayer, range);
+    storage_read(handle, range);
+    storage_write(handle, range);
 }
 
-void PassBuilder::storage_read(ResourceHandle handle, uint32_t baseMip, uint32_t baseLayer, ViewRange range)
+// records a declared bind range on the access use() just appended. ONLY USE after calling use()
+static void set_bind_range(RenderGraph* graph, PassNode* pass, BufferHandle handle, BufferRange range)
+{
+    if (!range.offset && !range.size)
+        return;
+    ResourceNode* n = find_node(graph, handle);
+    Q_ASSERT(n && "bind range: handle is 0 or from another graph");
+    const uint64_t sz = range.size ? range.size : (n->bufferSize > range.offset ? n->bufferSize - range.offset : 0);
+    pass->accesses[pass->accessCount - 1].bufOffset = range.offset;
+    pass->accesses[pass->accessCount - 1].bufSize = sz;
+}
+
+void PassBuilder::storage_read(BufferHandle handle, BufferRange range)
 {
     Q_ASSERT(handle.id != 0);
-    Q_ASSERT((handle.kind == ResourceKind::Texture || (baseMip == 0 && baseLayer == 0))
-        && "storage_read: baseMip/baseLayer are texture-only; a buffer handle has no subresource");
-    use(*this, handle, AccessType::StorageRead, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, baseMip, baseLayer, range);
+    use(m_pass, m_graph, handle, AccessType::StorageRead);
+    set_bind_range(m_graph, m_pass, handle, range);
 }
 
-void PassBuilder::storage_write(ResourceHandle handle, uint32_t baseMip, uint32_t baseLayer, ViewRange range)
+void PassBuilder::storage_write(BufferHandle handle, BufferRange range)
 {
     Q_ASSERT(handle.id != 0);
-    Q_ASSERT((handle.kind == ResourceKind::Texture || (baseMip == 0 && baseLayer == 0))
-        && "storage_write: baseMip/baseLayer are texture-only; a buffer handle has no subresource");
-    use(*this, handle, AccessType::StorageWrite, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, baseMip, baseLayer, range);
+    use(m_pass, m_graph, handle, AccessType::StorageWrite);
+    set_bind_range(m_graph, m_pass, handle, range);
 }
 
-void PassBuilder::storage_read_write(ResourceHandle handle, uint32_t baseMip, uint32_t baseLayer, ViewRange range)
+void PassBuilder::storage_read_write(BufferHandle handle, BufferRange range)
 {
     Q_ASSERT(handle.id != 0);
-    storage_read(handle, baseMip, baseLayer, range);
-    storage_write(handle, baseMip, baseLayer, range);
+    storage_read(handle, range);
+    storage_write(handle, range);
 }
 
-void PassBuilder::uniform(ResourceHandle handle)
+void PassBuilder::uniform(BufferHandle handle, BufferRange range)
 {
     Q_ASSERT(handle.id != 0);
-    Q_ASSERT(handle.kind == ResourceKind::Buffer);
-    use(*this, handle, AccessType::Uniform);
+    use(m_pass, m_graph, handle, AccessType::Uniform);
+    set_bind_range(m_graph, m_pass, handle, range);
 }
 
-void PassBuilder::host_write(ResourceHandle handle)
+void PassBuilder::host_write(BufferHandle handle)
 {
     Q_ASSERT(handle.id != 0);
-    Q_ASSERT(handle.kind == ResourceKind::Buffer && "host_write is buffer-only");
-    use(*this, handle, AccessType::CopyDst);
+    use(m_pass, m_graph, handle, AccessType::CopyDst);
 }
 
-void PassBuilder::copy_texture(ResourceHandle src, ResourceHandle dst, uint32_t srcMip, uint32_t srcLayer, uint32_t dstMip, uint32_t dstLayer)
+void PassBuilder::copy_texture(TextureHandle src, TextureHandle dst, Subresource srcSub, Subresource dstSub)
 {
+    const uint32_t srcMip = srcSub.mip, srcLayer = srcSub.layer;
+    const uint32_t dstMip = dstSub.mip, dstLayer = dstSub.layer;
+
     Q_ASSERT(src.id != 0 && dst.id != 0);
     Q_ASSERT(m_pass->kind == PassKind::Transfer && "copy_texture() is only legal in Transfer passes");
-    Q_ASSERT(src.kind == ResourceKind::Texture && dst.kind == ResourceKind::Texture && "copy_texture: both handles must be textures");
     Q_ASSERT(!(src.id == dst.id && srcMip == dstMip && srcLayer == dstLayer) && "copy_texture: src and dst are the same subresource");
-    use(*this, src, AccessType::CopySrc, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, srcMip, srcLayer);
-    use(*this, dst, AccessType::CopyDst, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, dstMip, dstLayer);
+    use(m_pass, m_graph, src, AccessType::CopySrc, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, srcMip, srcLayer);
+    use(m_pass, m_graph, dst, AccessType::CopyDst, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, dstMip, dstLayer);
 }
 
-void PassBuilder::copy_texture_to_buffer(ResourceHandle src, ResourceHandle dst, uint32_t srcMip, uint32_t srcLayer)
+void PassBuilder::copy_texture_to_buffer(TextureHandle src, BufferHandle dst, Subresource srcSub)
 {
+    const uint32_t srcMip = srcSub.mip, srcLayer = srcSub.layer;
+
     Q_ASSERT(src.id != 0 && dst.id != 0);
     Q_ASSERT(m_pass->kind == PassKind::Transfer && "copy_texture_to_buffer() is only legal in Transfer passes");
-    Q_ASSERT(src.kind == ResourceKind::Texture && dst.kind == ResourceKind::Buffer && "copy_texture_to_buffer: src must be a texture, dst a buffer");
-    use(*this, src, AccessType::CopySrc, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, srcMip, srcLayer);
-    use(*this, dst, AccessType::CopyDst);
+    use(m_pass, m_graph, src, AccessType::CopySrc, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, srcMip, srcLayer);
+    use(m_pass, m_graph, dst, AccessType::CopyDst);
 }
 
-void PassBuilder::copy_buffer_to_texture(ResourceHandle src, ResourceHandle dst, uint32_t dstMip, uint32_t dstLayer)
+void PassBuilder::copy_buffer_to_texture(BufferHandle src, TextureHandle dst, Subresource dstSub)
 {
+    const uint32_t dstMip = dstSub.mip, dstLayer = dstSub.layer;
+
     Q_ASSERT(src.id != 0 && dst.id != 0);
     Q_ASSERT(m_pass->kind == PassKind::Transfer && "copy_buffer_to_texture() is only legal in Transfer passes");
-    Q_ASSERT(src.kind == ResourceKind::Buffer && dst.kind == ResourceKind::Texture && "copy_buffer_to_texture: src must be a buffer, dst a texture");
-    use(*this, src, AccessType::CopySrc);
-    use(*this, dst, AccessType::CopyDst, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, dstMip, dstLayer);
+    use(m_pass, m_graph, src, AccessType::CopySrc);
+    use(m_pass, m_graph, dst, AccessType::CopyDst, WGPULoadOp_Undefined, WGPUStoreOp_Undefined, {}, {}, dstMip, dstLayer);
 }
 
-void PassBuilder::copy_buffer(ResourceHandle src, ResourceHandle dst, uint64_t srcOffset, uint64_t dstOffset, uint64_t size)
+void PassBuilder::copy_buffer(BufferHandle src, BufferHandle dst, uint64_t srcOffset, uint64_t dstOffset, uint64_t size)
 {
     Q_ASSERT(src.id != 0 && dst.id != 0);
     Q_ASSERT(m_pass->kind == PassKind::Transfer && "copy_buffer() is only legal in Transfer passes");
-    Q_ASSERT(src.kind == ResourceKind::Buffer && dst.kind == ResourceKind::Buffer && "copy_buffer: both handles must be buffers");
     Q_ASSERT(src.id != dst.id && "copy_buffer: WebGPU forbids a same-buffer copyBufferToBuffer");
     Q_ASSERT((srcOffset % 4 == 0 && dstOffset % 4 == 0 && size % 4 == 0) && "copy_buffer: offsets and size must be multiples of 4 (WebGPU)");
     ResourceNode* sn = find_node(m_graph, src);
@@ -3039,35 +3502,32 @@ void PassBuilder::copy_buffer(ResourceHandle src, ResourceHandle dst, uint64_t s
     Q_ASSERT(sn && dn && "copy_buffer: handle is 0 or from another graph");
 
     const uint64_t n = size ? size : (sn->bufferSize > srcOffset ? sn->bufferSize - srcOffset : 0);
-    use(*this, src, AccessType::CopySrc);
+    use(m_pass, m_graph, src, AccessType::CopySrc);
     m_pass->accesses[m_pass->accessCount - 1].bufOffset = srcOffset;
     m_pass->accesses[m_pass->accessCount - 1].bufSize = n;
-    use(*this, dst, AccessType::CopyDst);
+    use(m_pass, m_graph, dst, AccessType::CopyDst);
     m_pass->accesses[m_pass->accessCount - 1].bufOffset = dstOffset;
     m_pass->accesses[m_pass->accessCount - 1].bufSize = n;
     // full define for aliasing only when this copy provably overwrites every dst byte
     m_pass->accesses[m_pass->accessCount - 1].bufFullDefine = (dstOffset == 0 && n == dn->bufferSize);
 }
 
-void PassBuilder::vertex_buffer(ResourceHandle handle)
+void PassBuilder::vertex_buffer(BufferHandle handle)
 {
     Q_ASSERT(handle.id != 0);
-    Q_ASSERT(handle.kind == ResourceKind::Buffer);
-    use(*this, handle, AccessType::Vertex);
+    use(m_pass, m_graph, handle, AccessType::Vertex);
 }
 
-void PassBuilder::index_buffer(ResourceHandle handle)
+void PassBuilder::index_buffer(BufferHandle handle)
 {
     Q_ASSERT(handle.id != 0);
-    Q_ASSERT(handle.kind == ResourceKind::Buffer);
-    use(*this, handle, AccessType::Index);
+    use(m_pass, m_graph, handle, AccessType::Index);
 }
 
-void PassBuilder::indirect_buffer(ResourceHandle handle)
+void PassBuilder::indirect_buffer(BufferHandle handle)
 {
     Q_ASSERT(handle.id != 0);
-    Q_ASSERT(handle.kind == ResourceKind::Buffer);
-    use(*this, handle, AccessType::Indirect);
+    use(m_pass, m_graph, handle, AccessType::Indirect);
 }
 
 void PassBuilder::initialize(ResourceHandle target, uint64_t hash)
@@ -3079,8 +3539,7 @@ void PassBuilder::initialize(ResourceHandle target, uint64_t hash)
     for (uint32_t i = 0; i < m_pass->initCount; ++i)
         Q_ASSERT(m_pass->initTargets[i].target.id != target.id && "initialize() called twice for the same target in one pass");
     if (m_pass->initCount >= PassNode::kMaxInitTargets) {
-        qDebug("[RenderGraph] error: pass \"%.*s\" declares more than %u initialize() targets; "
-                    "target on resource id %u dropped.\n",
+        qDebug("[RenderGraph] error: pass \"%.*s\" declares more than %u initialize() targets. target on resource id %u dropped.",
             RG_NAME(m_pass->id),
             PassNode::kMaxInitTargets,
             target.id);

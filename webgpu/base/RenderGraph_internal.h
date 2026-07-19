@@ -1,5 +1,22 @@
+/*****************************************************************************
+ * Copyright (C) 2026 Matthias Huerbe
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *****************************************************************************/
 
 // internal node and allocator layout. not public API, may change without notice.
+// used for unit tests and for the RenderGraphPanel
 
 #pragma once
 
@@ -79,10 +96,11 @@ enum struct AccessType : uint8_t {
 
 // one recorded access on a pass. fields ordered wide-to-narrow to kill padding (~96B).
 struct ResourceAccess {
-    ResourceHandle handle {}; // 16B, 8-aligned -> first
+    ResourceHandle handle {};
 
-    // byte range of a copy_buffer(). both sides carry the same size, resolved at declare time so it is
-    // never 0. texture and non-copy accesses leave both 0.
+    // byte range of a copy_buffer() or a declared BufferRange on a uniform/storage bind. resolved at
+    // declare time so a recorded size is never 0 for a valid range. texture accesses and whole-buffer
+    // binds leave both 0.
     uint64_t bufOffset {};
     uint64_t bufSize {};
 
@@ -100,17 +118,16 @@ struct ResourceAccess {
     WGPUTextureViewDimension viewDim { WGPUTextureViewDimension_Undefined }; // Undefined -> infer
     WGPUTextureAspect viewAspect { WGPUTextureAspect_All };
 
-    // subresource + view range. narrowed from u32, all within WebGPU limits.
+    // subresource + view range.
     uint16_t baseLayer {};
     uint16_t layerCount { 1 };
     AccessType type {};
-    uint8_t stencilClear {}; // stencil is always 8-bit in WebGPU, exact
+    uint8_t stencilClear {};
     // color slot of a ColorAttachment, or of the color() a ResolveAttachment resolves. 0 otherwise.
     uint8_t colorIndex {};
     // buffer CopyDst only: provably overwrites the whole buffer. a copy_texture_to_buffer dst stays
     // false, its coverage is only known at encode time.
     bool bufFullDefine {};
-    // NOTE(Huerbe): baseMip/mipCount are u8 (mip count bounded, ~14 for a 16K texture). mipCount==0 = all remaining.
     uint8_t baseMip {};
     uint8_t mipCount { 1 };
 };
@@ -262,7 +279,7 @@ struct PersistentResourcePool {
     // free entries untouched for kRetain frames, then advance the clock. once per realized frame.
     void end_frame();
 
-    // idempotent. must run while arena is still alive.
+    // destroys all managed entities
     void destroy_all();
 
     ~PersistentResourcePool();
@@ -372,7 +389,7 @@ struct GpuProfiler {
 
     bool initialized {};
 
-    // --- timing history (recording), driven by the "Timings" tab ---
+    // timing history, driven by the "Timings" tab
     static constexpr uint32_t kHistory = 256; // frames retained
     bool recording {};
     uint32_t resultId {}; // bumped by the read-back cb per sample, dedupes capture
@@ -406,7 +423,7 @@ static constexpr size_t ARENA_SCRATCH_DEFAULT_BLOCK_SIZE = 2 * 1024;
 
 // chained-block bump allocator behind all graph storage. frees nothing until reset() or free_all().
 struct Arena {
-    // header + payload share one malloc
+
     struct ArenaBlock {
         ArenaBlock* next;
         uint8_t* payload; // aligned payload start, inside this same malloc
@@ -415,7 +432,7 @@ struct Arena {
     };
 
     ArenaBlock* head {};
-    ArenaBlock* current {}; // null until the first alloc
+    ArenaBlock* current {};
     size_t blockSize = ARENA_DEFAULT_BLOCK_SIZE;
 
     // debug stats
@@ -442,8 +459,7 @@ struct Arena {
     // grow p in place when it is the tail of the current block, null when it cannot
     void* extend_tail(void* p, size_t oldSize, size_t addSize);
 
-    // fatal, aborts via qFatal. never returning is what lets alloc_raw and every caller above it skip
-    // the null check.
+    // fatal, aborts via qFatal. alloc_raw and its callers rely on this and never null-check.
     [[noreturn]] void oom(size_t size);
 
     // rewind every block, keeping the memory
@@ -508,8 +524,7 @@ struct StringInterner {
 
 namespace webgpu::rg {
 
-// the cross-frame survivor behind every graph: arenas for per-frame nodes, plus the pools and profiler
-// that outlive each frame's teardown. the public opaque handle, hence namespace rg.
+// persistent data storage for the render graph
 struct GraphAllocator {
     Internal::Arena front; // permanent per-frame nodes
     Internal::Arena scratch; // compile()-local temporaries, driven by ScopedScratch
@@ -552,7 +567,6 @@ struct GraphAllocator {
 
 namespace webgpu::rg::Internal {
 
-// marks the arena on construction, rewinds on destruction
 struct ScopedScratch {
     Arena* arena;
     Arena::Mark mark;
@@ -561,7 +575,6 @@ struct ScopedScratch {
     ScopedScratch(const ScopedScratch&) = delete;
     ScopedScratch& operator=(const ScopedScratch&) = delete;
 
-    // rewind to the mark early, before destruction
     void reset();
 
     template <typename T>
@@ -619,19 +632,16 @@ struct ResourceNode {
     WGPUTextureUsage texUsage {}; // accumulated in compile() from the access list
     WGPUBufferUsage bufUsage {};
 
-    // first/last surviving pass to touch this, in execution order. filled in compile() phase 3.
-    // kNoPass = dead transient or imported.
+    // first/last surviving pass to touch this, in execution order. filled in compile() phase 3
     static constexpr uint32_t kNoPass = ~0u;
-    uint32_t firstUse = kNoPass;
-    uint32_t lastUse = kNoPass;
+    uint32_t firstUse = kNoPass; // kNoPass = dead transient or imported.
+    uint32_t lastUse = kNoPass; // kNoPass = dead transient or imported.
 
-    // the physical slot this transient shares with other disjoint-lifetime resources. kNoSlot means its
-    // own object, ineligible or aliasing off.
+    // the physical slot this transient shares with other disjoint-lifetime resources. kNoSlot means its own object, ineligible or aliasing off.
     static constexpr uint32_t kNoSlot = ~0u;
     uint32_t aliasSlot = kNoSlot;
 
-    // filled during the phase-3 access walk. soleAccess is the last one recorded, the only one when the
-    // count is 1.
+    // filled during the phase-3 access walk. soleAccess is the last one recorded, the only one when the count is 1.
     uint32_t liveAccessCount {};
     const ResourceAccess* soleAccess {};
 
@@ -741,6 +751,22 @@ struct RenderGraphStorage {
     float timing_execute_us {};
 };
 
+// storage() relies on st sitting immediately after rg
+struct GraphPair {
+    RenderGraph rg;
+    RenderGraphStorage st;
+};
+
+// unit-test helper
+struct PassContextAccess {
+    PassContext ctx;
+    PassContextAccess(RenderGraph* graph, PassNode* pass)
+    {
+        ctx.graph = graph;
+        ctx.pass = pass;
+    }
+};
+
 RenderGraphStorage* storage(RenderGraph* rg);
 
 ResourceNode* find_node(RenderGraph* rg, ResourceHandle h);
@@ -751,9 +777,10 @@ bool access_is_write(AccessType t);
 // empty past the end. for the debug lifetime widget.
 WGPUStringView pass_name_at(PassNode* head, uint32_t idx);
 
-// rough
-uint32_t texel_bytes(WGPUTextureFormat f);
+// texel-block descriptor
+struct TexelBlock { uint32_t w, h, bytes; };
+TexelBlock format_block(WGPUTextureFormat f);
 
-uint64_t texture_bytes(WGPUExtent3D size, WGPUTextureFormat format);
+uint64_t texture_bytes(WGPUExtent3D size, WGPUTextureFormat format, uint32_t mipLevelCount = 1, uint32_t sampleCount = 1, WGPUTextureDimension dim = WGPUTextureDimension_2D);
 
 } // namespace webgpu::rg::Internal

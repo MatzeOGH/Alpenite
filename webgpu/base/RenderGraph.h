@@ -1,15 +1,29 @@
+/*****************************************************************************
+ * Copyright (C) 2026 Matthias Huerbe
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *****************************************************************************/
 
 
-// immediate-mode render graph for WebGPU. declare resources and passes per frame, then compile() and
-// execute(). pass bodies call wgpu* directly, the graph only does pass ordering and resource lifetime.
-// full documentation: docs/rendergraph.md.
+// immediate-mode render graph for WebGPU. does pass ordering and resource lifetime
 
 #pragma once
 
 
 #include <cstdint>
 #include <initializer_list>
-#include <new> // placement new
+#include <new>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -21,13 +35,9 @@ namespace webgpu::rg {
 // picks the encoder the pass records into, and which accesses are legal
 enum struct PassKind : uint8_t {
     None = 0,
-    // PassContext::render_pass, with the declared attachments already bound. the body must not begin a
-    // render pass of its own.
-    Graphics,
-    // PassContext::compute_pass
-    Compute,
-    // no pass object, the body encodes copies on PassContext::encoder
-    Transfer
+    Graphics, // PassContext::render_pass, attachments already bound
+    Compute, // PassContext::compute_pass
+    Transfer // no pass object, copies go on PassContext::encoder
 };
 
 enum struct SizeKind : uint8_t {
@@ -40,26 +50,33 @@ enum struct ResourceKind : uint8_t {
     Buffer,
 };
 
-// names a resource for this frame. cheap to copy, never carries the GPU object itself, so pass it
-// between systems and capture it by value into pass lambdas. valid for one frame, generation catches
-// stale handles.
+// handle for one a render graph resource for this frame
 struct ResourceHandle {
     uint32_t id {};
     ResourceKind kind {};
     uint64_t generation {};
+
+    constexpr explicit operator bool() const { return id != 0; }
+    constexpr bool operator==(const ResourceHandle&) const = default;
 };
 
-// ping-pong pair, rotated each frame. write curr, read prev. this frame's curr is next frame's prev.
-struct HistoryResource {
-    ResourceHandle curr; // writes
-    // reads. gate every read on PassContext::history_valid, prev holds nothing on the frame it was
-    // (re)created.
-    ResourceHandle prev;
+struct TextureHandle : ResourceHandle {};
+struct BufferHandle : ResourceHandle {};
+
+// ping-pong pair, rotated each frame. this frame's curr is next frame's prev.
+template <typename H>
+struct History {
+    H curr; // written this frame
+    H prev; // last frame's curr
 };
+using HistoryTexture = History<TextureHandle>;
+using HistoryBuffer = History<BufferHandle>;
 
 namespace Internal {
 struct ResourceNode;
 struct PassNode;
+struct GraphPair;
+struct PassContextAccess;
 }
 struct GraphAllocator;
 struct RenderGraph;
@@ -69,52 +86,48 @@ struct ErrorMessage {
     ErrorMessage* next {};
 };
 
-// handed to the pass body during execute(), where handles turn into live GPU objects.
-//
-// call the resolvers from inside the body and let nothing they return escape it. the object behind a
-// transient handle is picked at execute() and changes frame to frame, so a view or bind group built
-// ahead of time, or cached for the next pass, points at another resource's memory. build bind groups
-// here, from bind() entries. see "the two rules" in docs/rendergraph.md.
+// resolves handles to live GPU objects during execute()
 struct PassContext {
-    WGPUCommandEncoder encoder {}; // borrowed
+    WGPUCommandEncoder encoder {};
     WGPURenderPassEncoder render_pass {}; // Graphics passes, else null
     WGPUComputePassEncoder compute_pass {}; // Compute passes, else null
-    WGPUQueue queue {}; // borrowed
-    WGPUDevice device {}; // borrowed
-    RenderGraph* graph {};
-    Internal::PassNode* pass {};
+    WGPUQueue queue {};
+    WGPUDevice device {};
 
-    // shape inferred from this pass's access declaration, ViewRange included
-    WGPUTextureView view(ResourceHandle h) const;
-    WGPUTextureView view(ResourceHandle h, uint32_t mip, uint32_t layer = 0) const;
+    // shape comes from this pass's access declaration, ViewRange included
+    WGPUTextureView view(TextureHandle h) const;
+    WGPUTextureView view(TextureHandle h, uint32_t mip, uint32_t layer = 0) const;
 
-    // buffers bind whole, at offset 0
+    // buffers bind at the BufferRange declared in this pass, or whole at offset 0 when none was
     WGPUBindGroupEntry bind(uint32_t binding, ResourceHandle h) const;
-    WGPUBindGroupEntry bind(uint32_t binding, ResourceHandle h, uint32_t mip, uint32_t layer = 0) const;
+    WGPUBindGroupEntry bind(uint32_t binding, TextureHandle h, uint32_t mip, uint32_t layer = 0) const;
 
     // all assert the handle has a declared access in this pass
-    WGPUTexture texture(ResourceHandle h) const;
-    WGPUBuffer buffer(ResourceHandle h) const;
-    WGPUExtent3D texture_size(ResourceHandle h) const;
-    WGPUExtent3D texture_size(ResourceHandle h, uint32_t mip) const;
-    uint64_t buffer_size(ResourceHandle h) const;
-    WGPUTextureFormat format(ResourceHandle h) const;
-    uint32_t mip_count(ResourceHandle h) const;
-    uint32_t sample_count(ResourceHandle h) const;
+    WGPUTexture texture(TextureHandle h) const;
+    WGPUBuffer buffer(BufferHandle h) const;
+    WGPUExtent3D texture_size(TextureHandle h) const;
+    WGPUExtent3D texture_size(TextureHandle h, uint32_t mip) const;
+    uint64_t buffer_size(BufferHandle h) const;
+    WGPUTextureFormat format(TextureHandle h) const;
+    uint32_t mip_count(TextureHandle h) const;
+    uint32_t sample_count(TextureHandle h) const;
 
     // false on the frame .prev was (re)created and cleared to 0
-    bool history_valid(ResourceHandle h) const;
+    template <typename H>
+    bool history_valid(const History<H>& history) const
+    {
+        return history_valid_impl(history.prev);
+    }
 
-    // resolvers for a copy declared in this pass, declared mip/layer applied. each needs one unambiguous
-    // copy per handle and direction.
-    WGPUTexelCopyTextureInfo copy_src_info(ResourceHandle h, WGPUOrigin3D origin = {}, WGPUTextureAspect aspect = WGPUTextureAspect_All) const;
-    WGPUTexelCopyTextureInfo copy_dst_info(ResourceHandle h, WGPUOrigin3D origin = {}, WGPUTextureAspect aspect = WGPUTextureAspect_All) const;
-    // the declared subresource's width and height at its mip level
-    WGPUExtent3D copy_extent_src(ResourceHandle h) const;
-    WGPUExtent3D copy_extent_dst(ResourceHandle h) const;
+    // copy descriptors for a copy declared in this pass, declared mip/layer applied
+    WGPUTexelCopyTextureInfo copy_src_info(TextureHandle h, WGPUOrigin3D origin = {}, WGPUTextureAspect aspect = WGPUTextureAspect_All) const;
+    WGPUTexelCopyTextureInfo copy_dst_info(TextureHandle h, WGPUOrigin3D origin = {}, WGPUTextureAspect aspect = WGPUTextureAspect_All) const;
+    // the declared subresource at its mip level, never the whole array
+    WGPUExtent3D copy_extent_src(TextureHandle h) const;
+    WGPUExtent3D copy_extent_dst(TextureHandle h) const;
     // buffer side of a texture<->buffer copy. layout is the caller's data layout.
-    WGPUTexelCopyBufferInfo copy_src_buffer(ResourceHandle h, WGPUTexelCopyBufferLayout layout) const;
-    WGPUTexelCopyBufferInfo copy_dst_buffer(ResourceHandle h, WGPUTexelCopyBufferLayout layout) const;
+    WGPUTexelCopyBufferInfo copy_src_buffer(BufferHandle h, WGPUTexelCopyBufferLayout layout) const;
+    WGPUTexelCopyBufferInfo copy_dst_buffer(BufferHandle h, WGPUTexelCopyBufferLayout layout) const;
 
     // size is already expanded, never 0
     struct BufferCopyInfo {
@@ -124,38 +137,71 @@ struct PassContext {
         uint64_t dstOffset {};
         uint64_t size {};
     };
-    BufferCopyInfo buffer_copy_info(ResourceHandle src, ResourceHandle dst) const;
+    BufferCopyInfo buffer_copy_info(BufferHandle src, BufferHandle dst) const;
+
+private:
+    RenderGraph* graph {};
+    Internal::PassNode* pass {};
+
+    bool history_valid_impl(ResourceHandle prev) const;
+
+    PassContext() = default;
+    PassContext(const PassContext&) = delete;
+    PassContext& operator=(const PassContext&) = delete;
+    friend struct RenderGraph;
+    friend struct Internal::PassContextAccess;
 };
 
-// view shape for a sampled/storage access. attachments ignore it, a render target is always one mip and
-// one layer. the default {} is one mip, one layer, all aspects, dimension inferred.
+// exactly one mip level and one array layer
+struct Subresource {
+    uint32_t mip = 0;
+    uint32_t layer = 0;
+};
+
+// view shape for a sampled/storage access. the default is one mip, one layer, all aspects, dimension
+// inferred.
 struct ViewRange {
-    // Undefined infers 3D for a 3D texture, else 2DArray when the view covers more than one layer, else
-    // 2D
+    uint32_t baseMip = 0; // first mip level the view sees
+    uint32_t mipCount = 1; // from baseMip. 0 = all remaining.
+    uint32_t baseLayer = 0; // first array layer the view sees
+    uint32_t layerCount = 1; // from baseLayer. 0 = all remaining.
+    // Undefined infers 3D for a 3D texture, else 2DArray when the view covers more than one layer, else 2D
     WGPUTextureViewDimension dim = WGPUTextureViewDimension_Undefined;
-    uint32_t mipCount = 1; // counted from baseMip, not an index. 0 = all remaining.
-    // counted from baseLayer, not an index. 0 = all remaining. layers come from a 2D texture's
-    // absolute.depthOrArrayLayers.
-    uint32_t layerCount = 1;
     WGPUTextureAspect aspect = WGPUTextureAspect_All; // picks one plane of a depth-stencil texture
+
+    // same shape, rebased
+    constexpr ViewRange at(uint32_t mip, uint32_t layer = 0) const
+    {
+        ViewRange r = *this;
+        r.baseMip = mip;
+        r.baseLayer = layer;
+        return r;
+    }
 };
 
-// a cube needs exactly 6 layers, a cube array 6*cubes. sampling only, WebGPU storage textures cannot be
-// cube. mipCount 0 means all mips from baseMip.
+// cube view, exactly 6 layers. sampling only, WebGPU storage textures cannot be cube.
 constexpr ViewRange cube(WGPUTextureAspect aspect = WGPUTextureAspect_All, uint32_t mipCount = 1)
 {
-    return ViewRange { WGPUTextureViewDimension_Cube, mipCount, 6, aspect };
+    return ViewRange { .mipCount = mipCount, .layerCount = 6, .dim = WGPUTextureViewDimension_Cube, .aspect = aspect };
 }
+
+// cube array view, 6*cubes layers
 constexpr ViewRange cube_array(uint32_t cubes, WGPUTextureAspect aspect = WGPUTextureAspect_All, uint32_t mipCount = 1)
 {
-    return ViewRange { WGPUTextureViewDimension_CubeArray, mipCount, 6 * cubes, aspect };
+    return ViewRange { .mipCount = mipCount, .layerCount = 6 * cubes, .dim = WGPUTextureViewDimension_CubeArray, .aspect = aspect };
 }
 
 // all mips and layers from baseMip/baseLayer, dimension inferred
 constexpr ViewRange whole(WGPUTextureAspect aspect = WGPUTextureAspect_All)
 {
-    return ViewRange { WGPUTextureViewDimension_Undefined, 0, 0, aspect };
+    return ViewRange { .mipCount = 0, .layerCount = 0, .aspect = aspect };
 }
+
+// byte range of a buffer binding. the default binds the whole buffer
+struct BufferRange {
+    uint64_t offset = 0; // must be a multiple of 256 according to the spec
+    uint64_t size = 0; // from offset. 0 = all remaining.
+};
 
 // the 256-byte row alignment WebGPU requires for buffer<->texture copies
 inline uint32_t aligned_bytes_per_row(uint32_t widthTexels, uint32_t texelBlockBytes)
@@ -165,83 +211,81 @@ inline uint32_t aligned_bytes_per_row(uint32_t widthTexels, uint32_t texelBlockB
     return (raw + (align - 1u)) & ~(align - 1u);
 }
 
-// handed to a pass's setup lambda, which runs immediately. one call per resource use.
-//
-// these declarations are the whole contract with the graph. it derives pass ordering from them (a
-// sampled() runs after whatever wrote that handle), infers the WGPUTextureUsage/WGPUBufferUsage to
-// create the resource with, and decides what memory a transient may share. no GPU work happens here.
-//
-// an access the body performs but never declares is invisible to all three: it gets no ordering edge,
-// and the aliaser is free to hand that memory to another transient. declare every read and write.
-struct PassBuilder {
-    // attachmentIndex is the fragment shader @location. slots may be sparse, the same slot twice is an
-    // error. a render target is always one mip and one layer, hence baseMip/baseLayer, not a range.
-    void color(ResourceHandle handle,
-        uint32_t attachmentIndex,
-        WGPULoadOp load = WGPULoadOp_Clear,
-        WGPUStoreOp store = WGPUStoreOp_Store,
-        WGPUColor clear = { 0, 0, 0, 1 },
-        uint32_t baseMip = 0,
-        uint32_t baseLayer = 0);
-    void depth_stencil(ResourceHandle handle,
-        WGPULoadOp load = WGPULoadOp_Clear,
-        WGPUStoreOp store = WGPUStoreOp_Store,
-        float clearDepth = 1.0f,
-        uint32_t baseMip = 0,
-        uint32_t baseLayer = 0,
-        WGPULoadOp stencilLoad = WGPULoadOp_Undefined,
-        WGPUStoreOp stencilStore = WGPUStoreOp_Undefined,
-        uint32_t stencilClear = 0);
-    // test only, no write. WebGPU requires Undefined load/store.
-    void depth_stencil_read_only(ResourceHandle handle, uint32_t baseMip = 0, uint32_t baseLayer = 0);
-    // MSAA resolve of src, a color() declared earlier in this pass, into a single-sample target. src is
-    // matched by handle, not by position, but its color() must already be declared. one resolve target
-    // per color slot.
-    void resolve(ResourceHandle src, ResourceHandle target, uint32_t baseMip = 0, uint32_t baseLayer = 0);
-    void sampled(ResourceHandle handle, uint32_t baseMip = 0, uint32_t baseLayer = 0, ViewRange range = {});
-    void storage_read(ResourceHandle handle, uint32_t baseMip = 0, uint32_t baseLayer = 0, ViewRange range = {});
-    void storage_write(ResourceHandle handle, uint32_t baseMip = 0, uint32_t baseLayer = 0, ViewRange range = {});
-    // in-dispatch races are the shader's responsibility
-    void storage_read_write(ResourceHandle handle, uint32_t baseMip = 0, uint32_t baseLayer = 0, ViewRange range = {});
-    void uniform(ResourceHandle handle);
-    // a wgpuQueueWriteBuffer in this pass body
-    void host_write(ResourceHandle handle);
-    void copy_texture(ResourceHandle src, ResourceHandle dst, uint32_t srcMip = 0, uint32_t srcLayer = 0, uint32_t dstMip = 0, uint32_t dstLayer = 0);
-    // dst is a transient buffer, or an imported CopyDst|MapRead buffer for CPU readback. the graph never
-    // creates mappable buffers.
-    void copy_texture_to_buffer(ResourceHandle src, ResourceHandle dst, uint32_t srcMip = 0, uint32_t srcLayer = 0);
-    void copy_buffer_to_texture(ResourceHandle src, ResourceHandle dst, uint32_t dstMip = 0, uint32_t dstLayer = 0);
-    // size 0 means the whole src buffer from srcOffset
-    void copy_buffer(ResourceHandle src, ResourceHandle dst, uint64_t srcOffset = 0, uint64_t dstOffset = 0, uint64_t size = 0);
-    void vertex_buffer(ResourceHandle handle);
-    void index_buffer(ResourceHandle handle);
-    void indirect_buffer(ResourceHandle handle);
-
-    // bake pass for a pool-backed resource, a persistent one or a history curr. runs only when the target
-    // is stale: first frame, recreation, or hash mismatch. hash 0 bakes once. still declare the write
-    // itself (color(), storage_write(), a copy), this only gates whether the pass runs. on a skipped
-    // frame the pass is culled, and readers bind the pooled result regardless.
-    void initialize(ResourceHandle target, uint64_t hash = 0);
-
-    // exempt this pass from dead-pass culling, for side-effect-only passes
-    void force_keep();
-
-    Internal::PassNode* m_pass;
-    RenderGraph* m_graph {};
+// how a color attachment is bound. the default is clear to black, store, mip 0, layer 0.
+struct ColorAttachment {
+    WGPULoadOp load = WGPULoadOp_Clear; // Load keeps the previous contents, Clear overwrites with clear
+    WGPUStoreOp store = WGPUStoreOp_Store; // Discard when nothing reads the result afterwards
+    WGPUColor clear = { 0, 0, 0, 1 }; // used only with WGPULoadOp_Clear
+    Subresource sub {}; // which mip and layer to render into
 };
 
-// usage flags are inferred from how passes declare the resource, so there is no usage field here
+// left Undefined, the graph fills them in from the format.
+struct DepthStencilAttachment {
+    WGPULoadOp load = WGPULoadOp_Clear; // depth plane. Load keeps last frame's depth
+    WGPUStoreOp store = WGPUStoreOp_Store; // Discard when no later pass samples the depth
+    float clearDepth = 1.0f; // used only with WGPULoadOp_Clear. 1.0 is the far plane
+    Subresource sub {}; // which mip and layer to render into
+    WGPULoadOp stencilLoad = WGPULoadOp_Undefined; // Undefined derives from the format, set only to override
+    WGPUStoreOp stencilStore = WGPUStoreOp_Undefined; // Undefined derives from the format, set only to override
+    uint32_t stencilClear = 0; // used only with a stencil clear
+};
+
+// declares one pass's resource accesses. one call per use.
+struct PassBuilder {
+    // attachmentIndex is the fragment shader @location. slots may be sparse.
+    void color(TextureHandle handle, uint32_t attachmentIndex, ColorAttachment attachment = {});
+    void depth_stencil(TextureHandle handle, DepthStencilAttachment attachment = {});
+    // test only, no write
+    void depth_stencil_read_only(TextureHandle handle, Subresource sub = {});
+    // MSAA resolve of src into target
+    void resolve(TextureHandle src, TextureHandle target, Subresource sub = {});
+    void sampled(TextureHandle handle, ViewRange range = {});
+    void storage_read(TextureHandle handle, ViewRange range = {});
+    void storage_write(TextureHandle handle, ViewRange range = {});
+    void storage_read_write(TextureHandle handle, ViewRange range = {});
+    // storage buffer. range picks the bytes ctx.bind() binds; one range per buffer per pass.
+    void storage_read(BufferHandle handle, BufferRange range = {});
+    void storage_write(BufferHandle handle, BufferRange range = {});
+    void storage_read_write(BufferHandle handle, BufferRange range = {});
+    void uniform(BufferHandle handle, BufferRange range = {});
+    void host_write(BufferHandle handle);
+    void copy_texture(TextureHandle src, TextureHandle dst, Subresource srcSub = {}, Subresource dstSub = {});
+
+    void copy_texture_to_buffer(TextureHandle src, BufferHandle dst, Subresource srcSub = {});
+    void copy_buffer_to_texture(BufferHandle src, TextureHandle dst, Subresource dstSub = {});
+
+    // size 0 means the whole src buffer from srcOffset
+    void copy_buffer(BufferHandle src, BufferHandle dst, uint64_t srcOffset = 0, uint64_t dstOffset = 0, uint64_t size = 0);
+    void vertex_buffer(BufferHandle handle);
+    void index_buffer(BufferHandle handle);
+    void indirect_buffer(BufferHandle handle);
+
+    // bake pass for a pool-backed resource. runs only when the target is stale.
+    void initialize(ResourceHandle target, uint64_t hash = 0);
+
+    // exempts this pass from dead-pass culling
+    void force_keep();
+
+private:
+    Internal::PassNode* m_pass {};
+    RenderGraph* m_graph {};
+
+    PassBuilder() = default;
+    PassBuilder(const PassBuilder&) = delete;
+    PassBuilder& operator=(const PassBuilder&) = delete;
+    friend struct RenderGraph;
+};
+
+// usage flags are inferred from how passes declare the resource
 struct TextureDesc {
-    WGPUTextureDimension dimension = WGPUTextureDimension_Undefined;
-    WGPUTextureFormat format = WGPUTextureFormat_Undefined;
-    SizeKind sizeKind = SizeKind::Absolute;
-    // Relative only: size is this factor times relativeTo's, so a half-res target tracks its source
-    // through resizes
-    float scaleX = 1.0f;
-    float scaleY = 1.0f;
-    ResourceHandle relativeTo {}; // required for Relative. a cycle through relativeTo is a compile error.
-    WGPUExtent3D absolute = WGPU_EXTENT_3D_INIT; // Absolute only
-    uint32_t mipLevelCount = 1;
+    WGPUTextureDimension dimension = WGPUTextureDimension_Undefined; // set 2D or 3D explicitly, Undefined is not normalized. 1D is unsupported.
+    WGPUTextureFormat format = WGPUTextureFormat_Undefined; // required, there is no default
+    SizeKind sizeKind = SizeKind::Absolute; // picks between absolute and the scale/relativeTo pair
+    float scaleX = 1.0f; // Relative only: factor of relativeTo's size
+    float scaleY = 1.0f; // Relative only
+    TextureHandle relativeTo {}; // Relative only: the texture whose size is scaled
+    WGPUExtent3D absolute = WGPU_EXTENT_3D_INIT; // Absolute only: size in texels, depthOrArrayLayers is the layer count for 2D
+    uint32_t mipLevelCount = 1; // full chain must be spelled out, there is no 0 = all
     uint32_t sampleCount = 1; // 1 or 4 (WebGPU 1.0 limit)
 };
 
@@ -249,102 +293,78 @@ struct BufferDesc {
     uint64_t size {}; // bytes
 };
 
-// frame-scoped. obtain via start_recording(), invalid after the next begin_frame().
-//
-// every id is hashed and copied into the graph's arena during the call, so the string_view only has to
-// be alive for that call. resource ids must be unique within a frame.
+// an object the graph does not own. a null texture registers the view only, which rules out
+// ctx.texture() and the copy family. dimension is the source texture's own, so an array or cube source
+// says 2D.
+struct ImportTextureDesc {
+    WGPUTextureView view = nullptr; // required, what ctx.view() returns for this handle
+    WGPUExtent3D size = WGPU_EXTENT_3D_INIT; // required, the graph cannot query an imported view
+    WGPUTextureFormat format = WGPUTextureFormat_Undefined; // required, must match the view's format
+    WGPUTexture texture = nullptr; // optional, enables ctx.texture() and the copy family
+    uint32_t mipCount = 1; // of the underlying texture, only relevant when texture is set
+    uint32_t sampleCount = 1; // must match the source, wrong value breaks attachment use
+    WGPUTextureDimension dimension = WGPUTextureDimension_2D; // the source texture's own dimension, see the struct comment
+};
+
+// render graph api for creating resources and adding passes
 struct RenderGraph {
-    // lives for this frame, drawn from a pool and possibly aliased with another transient. the default
-    // choice, the others below exist for cross-frame memory.
-    ResourceHandle create_transient_texture(std::string_view id, const TextureDesc& desc);
+    // lives for this frame, pooled and possibly aliased with another transient
+    TextureHandle create_transient_texture(std::string_view id, const TextureDesc& desc);
+    BufferHandle create_transient_buffer(std::string_view id, const BufferDesc& desc);
 
-    ResourceHandle create_transient_buffer(std::string_view id, const BufferDesc& desc);
+    // wraps an object the graph does not own, usually the swapchain. writing an import is a frame
+    // output, so those passes are never culled.
+    TextureHandle import_texture(std::string_view id, const ImportTextureDesc& desc);
 
-    // wraps an object the graph does not own, the swapchain being the usual one. caller owns lifetime and
-    // guarantees it outlives the frame. writing an import is an output that leaves the frame, so those
-    // passes are never culled.
-    //
-    // a null texture registers the view only, which rules out ctx.texture() and the copy family on this
-    // handle. dimension is the source texture's own dimension, so an array or cube source must say 2D.
-    ResourceHandle import_texture(std::string_view id, WGPUTextureView view, WGPUExtent3D size, WGPUTextureFormat format,
-        WGPUTexture texture = nullptr, uint32_t mipCount = 1, uint32_t sampleCount = 1,
-        WGPUTextureDimension dimension = WGPUTextureDimension_2D);
+    BufferHandle import_buffer(std::string_view id, WGPUBuffer buffer);
 
-    // caller owns lifetime
-    ResourceHandle import_buffer(std::string_view id, WGPUBuffer buffer);
+    // cross-frame ping-pong for temporal effects. hash != 0 resets history when the hash changes.
+    HistoryTexture create_history_texture(std::string_view id, const TextureDesc& desc, uint64_t hash = 0);
+    HistoryBuffer create_history_buffer(std::string_view id, const BufferDesc& desc, uint64_t hash = 0);
 
-    // cross-frame ping-pong for temporal effects. write .curr, read .prev, and see HistoryResource.
-    // hash != 0 enables hash-based invalidation: history resets on the frame the hash changes, which is
-    // how a camera cut drops reprojection.
-    HistoryResource create_history_texture(std::string_view id, const TextureDesc& desc, uint64_t hash = 0);
+    // graph-owned, kept across frames
+    BufferHandle create_persistent_buffer(std::string_view id, const BufferDesc& desc);
 
-    HistoryResource create_history_buffer(std::string_view id, const BufferDesc& desc, uint64_t hash = 0);
+    // initialized once from data, or zero-filled
+    BufferHandle create_initialized_buffer(std::string_view id, const BufferDesc& desc, const void* data = nullptr);
 
-    // one graph-owned object kept across frames, for a cache or a LUT. content that is baked rather than
-    // rewritten every frame wants PassBuilder::initialize() on the baking pass.
-    ResourceHandle create_persistent_buffer(std::string_view id, const BufferDesc& desc);
+    TextureHandle create_persistent_texture(std::string_view id, const TextureDesc& desc);
 
-    // initialized once from data, or zero-filled. the fallback for an optional binding.
-    ResourceHandle create_initialized_buffer(std::string_view id, const BufferDesc& desc, const void* data = nullptr);
+    // cleared once to fill
+    TextureHandle create_initialized_texture(std::string_view id, const TextureDesc& desc, WGPUColor fill);
 
-    ResourceHandle create_persistent_texture(std::string_view id, const TextureDesc& desc);
-
-    // cleared once to fill. the fallback for an optional sampled slot.
-    ResourceHandle create_initialized_texture(std::string_view id, const TextureDesc& desc, WGPUColor fill);
-
-    // setup(PassBuilder&) runs now and declares this pass's accesses. executeFn(PassContext&) runs later,
-    // inside execute(), and records the GPU commands.
-    //
-    // executeFn's closure lives in an arena that frees without running destructors, so it must be
-    // trivially destructible: capture handles, raw WGPU objects, plain values and this, all by value.
-    // a std::string, container, smart pointer or RAII wrapper fails the static_assert below.
-    //
-    // id must be non-empty. it labels the pass in the debug panel, GPU timings and error messages, and
-    // is not checked for uniqueness.
+    // setup(PassBuilder&) declares the pass's accesses now. executeFn(PassContext&) records the GPU
+    // commands during execute(), and must be trivially destructible.
     template <typename BuilderFn, typename ExecuteFn>
     void add_pass(std::string_view id, PassKind kind, BuilderFn&& setup, ExecuteFn&& executeFn)
     {
         Q_ASSERT(!id.empty() && "must have name");
         Q_ASSERT(kind != PassKind::None);
-        PassBuilder builder = begin_pass(id, kind);
+        PassBuilder builder;
+        begin_pass(builder, id, kind);
         setup(builder);
         store_exec(builder, std::forward<ExecuteFn>(executeFn));
         end_pass(builder);
     }
 
-    // called once, after every create_*, import_* and add_pass. the graph is frozen afterwards.
-    //
-    // the frame runs in this order:
-    //   begin_frame() -> start_recording() -> declare resources and passes -> compile() -> get_errors()
-    //   -> execute() -> submit the encoder yourself -> collect_gpu_timings() -> end_frame()
-    //
-    // compile() also culls: a pass survives only if it feeds a read by another surviving pass, an
-    // imported resource, a history curr, or is marked force_keep(). a pass writing only a transient
-    // nobody reads is dropped silently and leaves the panel and timings.
-    //
-    // authoring errors land in get_errors() rather than throwing. enableAlias packs disjoint-lifetime
-    // transients onto shared objects, pass false to rule aliasing out while debugging.
-    void compile(bool enableAlias = true);
+    // schedules the graph and freezes it. returns the authoring-error chain, null when ok.
+    [[nodiscard]] ErrorMessage* compile(bool enableAlias = true);
 
-    // records the surviving passes into encoder. does not submit, the caller owns that.
-    //
-    // device, queue and encoder are borrowed, never released. enableProfiling needs TimestampQuery.
-    // multiple graphs per frame must be submitted in execute order on one queue.
+    // records the surviving passes into encoder. does not submit.
     void execute(WGPUDevice device, WGPUQueue queue, WGPUCommandEncoder encoder, bool enableProfiling = false);
-    // after queue submit. no-op when profiling was off. results arrive a few frames later, via the
-    // instance event pump.
+
+    // kicks the async read-back of the GPU timings
     void collect_gpu_timings();
 
-    // the only signal that the frame is broken, so check it after every compile().
-    //
-    // an authoring error (a read of a transient nothing writes, a cycle, an out-of-range subresource)
-    // poisons the graph instead of throwing, and execute() turns into a no-op. that shows up as a black
-    // scene with everything outside the graph, the UI included, still running.
-    //
-    // non-null means the graph failed. the chain is freed by the next begin_frame().
+    // returns the errors captured by compile()
     ErrorMessage* get_errors() const;
 
 private:
+    RenderGraph() = default;
+    RenderGraph(const RenderGraph&) = delete;
+    RenderGraph& operator=(const RenderGraph&) = delete;
+    friend struct Internal::GraphPair;
+
     template <class F>
     void store_exec(PassBuilder& b, F&& f)
     {
@@ -359,7 +379,7 @@ private:
     void set_exec(PassBuilder& builder, void* obj, void (*fn)(void*, PassContext&));
 
 
-    PassBuilder begin_pass(std::string_view id, PassKind kind);
+    void begin_pass(PassBuilder& builder, std::string_view id, PassKind kind);
     void end_pass(PassBuilder& builder);
 };
 
@@ -372,11 +392,10 @@ void destroy_allocator(GraphAllocator* allocator);
 // all graphs and handles from the previous frame die here
 void begin_frame(GraphAllocator* allocator);
 
-// several graphs per frame are allowed. see execute() for ordering rules.
+// starts a frame-scoped graph. several per frame are allowed.
 RenderGraph* start_recording(GraphAllocator* allocator);
 
-// ages the pools so unused GPU objects get evicted. must run after the queue submit, the pooled objects
-// are still referenced by the commands being submitted.
+// ages the pools so unused GPU objects get evicted
 void end_frame(GraphAllocator* allocator);
 
 } // namespace webgpu::rg
