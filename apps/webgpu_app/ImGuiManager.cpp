@@ -58,6 +58,9 @@
 
 namespace webgpu_app {
 
+bool g_use_render_graph = false;
+webgpu::rg::RenderGraph* g_render_graph = nullptr;
+
 ImGuiManager::ImGuiManager(App* terrain_renderer)
     : m_terrain_renderer(terrain_renderer)
 {
@@ -109,9 +112,7 @@ void ImGuiManager::init(
 #endif
     m_panels.push_back(std::make_unique<OverlaysPanel>(engine_ctx));
 
-    auto render_graph_panel = std::make_unique<RenderGraphPanel>();
-    m_render_graph_panel = render_graph_panel.get();
-    m_panels.push_back(std::move(render_graph_panel));
+    m_panels.push_back(std::make_unique<RenderGraphPanel>());
 
     connect(&search_panel, &SearchPanel::search_requested, rc->search_service(), &SearchService::search);
     connect(&search_panel,
@@ -201,12 +202,6 @@ void ImGuiManager::render([[maybe_unused]] WGPURenderPassEncoder renderPass)
 
     ImGui::Render();
     ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), renderPass);
-}
-
-void ImGuiManager::set_render_graph(webgpu::RenderGraph* graph)
-{
-    if (m_render_graph_panel)
-        m_render_graph_panel->set_graph(graph);
 }
 
 void ImGuiManager::shutdown()

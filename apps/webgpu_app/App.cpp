@@ -210,14 +210,6 @@ void App::render()
         qFatal("Cannot acquire next surface texture");
     }
 
-    // BEGIN of render graph frame
-    webgpu::begin_frame(m_context->graph_allocator);
-    webgpu::RenderGraph* rg = webgpu::start_recording(m_context->graph_allocator);
-    m_gui_manager->set_render_graph(rg);
-
-    // import the swapchain texture as an extern dependency
-    auto swapchain = rg->importe_texture( "swapchain"_rid , surface_texture_view, {m_viewport_size.x, m_viewport_size.y, 1}, viewDescriptor.format);
-
     WGPUCommandEncoderDescriptor command_encoder_desc {};
     command_encoder_desc.label = WGPUStringView { .data = "Command Encoder", .length = WGPU_STRLEN };
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(m_device, &command_encoder_desc);
@@ -226,40 +218,81 @@ void App::render()
         m_gputimer->start(encoder);
 
     m_frame_count++;
-    if (m_webgpu_window->needs_redraw() || m_force_repaint || m_force_repaint_once) {
-        m_webgpu_window->paint(m_framebuffer.get(), encoder);
-        m_repaint_count++;
-        m_force_repaint_once = false;
-    }
 
+    const bool use_render_graph = g_use_render_graph;
 
-    rg->add_pass("imgui"_rid, webgpu::PassKind::Graphics,
-        [swapchain](auto& b)
-        {
-            b.color(swapchain, WGPULoadOp_Load, WGPUStoreOp_Store);
-        },
-        [&](auto& c)
-        {
-            //webgpu::raii::RenderPassEncoder render_pass(encoder, surface_texture_view, nullptr);
-            wgpuRenderPassEncoderSetPipeline(c.render_pass, m_gui_pipeline.get()->pipeline().handle());
-            wgpuRenderPassEncoderSetBindGroup(c.render_pass, 0, m_gui_bind_group->handle(), 0, nullptr);
-            wgpuRenderPassEncoderDraw(c.render_pass, 3, 1, 0, 0);
+    if (use_render_graph) {
 
-            // We add the GUI drawing commands to the render pass
-            m_gui_manager->render(c.render_pass);
+        webgpu::rg::begin_frame(m_context->graph_allocator);
+        webgpu::rg::RenderGraph* rg = webgpu::rg::start_recording(m_context->graph_allocator);
+        g_render_graph = rg;
+
+        // import the swapchain texture as an extern dependency
+        auto swapchain = rg->import_texture("swapchain",
+        { .view = surface_texture_view, .size = { m_viewport_size.x, m_viewport_size.y, 1 }, .format = viewDescriptor.format }
+        );
+
+        auto result = m_webgpu_window->paint(rg, true);
+
+        // Blit the scene into the swapchain
+        rg->add_pass("blit", webgpu::rg::PassKind::Graphics,
+            [swapchain, result](webgpu::rg::PassBuilder& b) {
+                b.color(swapchain, 0, { .load = WGPULoadOp_Load });
+                b.sampled(result);
+            },
+            [&](auto& c) {
+
+                webgpu::raii::BindGroup blit_bind_group(c.device, *m_gui_bind_group_layout,
+                    {
+                        c.bind(0, result),
+                        m_gui_ubo->create_bind_group_entry(1),
+                    },
+                    "blit");
+
+                wgpuRenderPassEncoderSetPipeline(c.render_pass, m_gui_pipeline.get()->pipeline().handle());
+                wgpuRenderPassEncoderSetBindGroup(c.render_pass, 0, blit_bind_group.handle(), 0, nullptr);
+                wgpuRenderPassEncoderDraw(c.render_pass, 3, 1, 0, 0);
+            });
+
+        for (webgpu::rg::ErrorMessage* error = rg->compile(); error; error = error->next)
+            qCritical("%.*s", error->message.length, error->message.data);
+
+        rg->execute(m_device, m_queue, encoder, false);
+        rg->collect_gpu_timings();
+    } else {
+
+        if (m_webgpu_window->needs_redraw() || m_force_repaint || m_force_repaint_once) {
+            m_webgpu_window->paint(m_framebuffer.get(), encoder);
+            m_repaint_count++;
+            m_force_repaint_once = false;
         }
-    );
-
-    // compile the finished graph
-    rg->compile();
-
-    for(webgpu::ErrorMessage* error = rg->get_errors(); error; error = error->next)
-    {
-        qCritical("%.*s", error->message.length, error->message.data);
     }
 
-    rg->execute(m_device, encoder, m_queue, false);
-    rg->collect_gpu_timings();
+    {
+        WGPURenderPassColorAttachment gui_color_attachment {};
+        gui_color_attachment.view = surface_texture_view;
+        gui_color_attachment.loadOp = WGPULoadOp_Load;
+        gui_color_attachment.storeOp = WGPUStoreOp_Store;
+        gui_color_attachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+
+        WGPURenderPassDescriptor gui_pass_desc {};
+        gui_pass_desc.label = WGPUStringView { .data = "imgui pass", .length = WGPU_STRLEN };
+        gui_pass_desc.colorAttachmentCount = 1;
+        gui_pass_desc.colorAttachments = &gui_color_attachment;
+
+        WGPURenderPassEncoder gui_pass = wgpuCommandEncoderBeginRenderPass(encoder, &gui_pass_desc);
+
+        if (!use_render_graph) {
+            // Legacy blit: sample m_framebuffer (static bind group) into the swapchain.
+            wgpuRenderPassEncoderSetPipeline(gui_pass, m_gui_pipeline.get()->pipeline().handle());
+            wgpuRenderPassEncoderSetBindGroup(gui_pass, 0, m_gui_bind_group->handle(), 0, nullptr);
+            wgpuRenderPassEncoderDraw(gui_pass, 3, 1, 0, 0);
+        }
+
+        m_gui_manager->render(gui_pass);
+        wgpuRenderPassEncoderEnd(gui_pass);
+        wgpuRenderPassEncoderRelease(gui_pass);
+    }
 
     if (webgpu::isTimingSupported())
         m_gputimer->stop(encoder);
@@ -278,8 +311,10 @@ void App::render()
 
     m_cputimer->stop();
 
-    // end the frame
-    webgpu::end_frame(m_context->graph_allocator);
+    // end the render-graph frame (only if we began one). Kept after submit so the graph's transient resources
+    // outlive the GPU work that references them.
+    if (use_render_graph)
+        webgpu::rg::end_frame(m_context->graph_allocator);
 
 #ifndef __EMSCRIPTEN__
     // Surface present in the WEB is handled by the browser!
@@ -311,7 +346,7 @@ void App::start()
     connect(m_camera_controller.get(), &nucleus::camera::Controller::definition_changed, m_context->ortho_scheduler(),    &nucleus::tile::Scheduler::update_camera);
     connect(m_camera_controller.get(), &nucleus::camera::Controller::definition_changed, m_context->cloud_scheduler(),    &nucleus::tile::Scheduler::update_camera);
     connect(m_camera_controller.get(), &nucleus::camera::Controller::definition_changed, m_webgpu_window.get(),           &webgpu_engine::Window::update_camera);
-    
+
     connect(m_context->geometry_scheduler(), &nucleus::tile::GeometryScheduler::gpu_tiles_updated,  m_webgpu_window.get(), &webgpu_engine::Window::update_requested);
     connect(m_context->ortho_scheduler(),    &nucleus::tile::TextureScheduler::gpu_tiles_updated,   m_webgpu_window.get(), &webgpu_engine::Window::update_requested);
     connect(m_context->cloud_scheduler(),    &nucleus::tile::Texture3DScheduler::gpu_tiles_updated, m_webgpu_window.get(), &webgpu_engine::Window::update_requested);

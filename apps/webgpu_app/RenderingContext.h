@@ -32,6 +32,8 @@
 
 namespace webgpu {
 class Context;
+}
+namespace webgpu::rg {
 struct GraphAllocator;
 }
 
@@ -76,7 +78,7 @@ public:
     nucleus::tile::TileLoadService* cloud_tile_load_service();
     clouds::Manager* clouds_manager();
     SearchService* search_service();
-    webgpu::GraphAllocator* graph_allocator {};
+    webgpu::rg::GraphAllocator* graph_allocator {};
 
 signals:
     void initialised();
