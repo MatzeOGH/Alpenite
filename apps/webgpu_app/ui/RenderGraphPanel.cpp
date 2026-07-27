@@ -1,6 +1,5 @@
 /*****************************************************************************
- * weBIGeo
- * Copyright (C) 2026 Matthias Huerbe
+ * Mostly written by Opus 4.8
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,11 +32,6 @@ using namespace webgpu;
 using namespace webgpu::rg;
 using namespace webgpu::rg::Internal;
 
-
-#if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable : 4456 4457 4100 4189 4505 4996)
-#endif
 
 // short labels/tints for the node boxes
 static const char* rg_kind_name(PassKind k)
@@ -83,8 +77,7 @@ static ImU32 rg_resource_color(ResourceKind k)
                                             : IM_COL32(170, 120, 60, 255);
 }
 
-// short format label. anything this sample does not create falls back to the raw enum, so an unexpected
-// recreate still shows something legible.
+// short format label, unknown formats fall back to the raw enum
 static const char* rg_format_name(WGPUTextureFormat f)
 {
     switch (f)
@@ -273,8 +266,8 @@ static ImU32 group_color(WGPUStringView prefix)
     return pal[h % (sizeof pal / sizeof pal[0])];
 }
 
-// ID-stack-independent key for a group's collapse state. ImGui::GetID is seeded by the current window,
-// so the pre-layout read and the in-canvas click write would hash one string to different ids.
+// collapse-state key independent of the ID stack. ImGui::GetID is window-seeded, so the pre-layout read
+// and the in-canvas write would hash one string to different ids.
 static ImGuiID rg_grp_key(WGPUStringView prefix)
 {
     ImU32 h = 2166136261u;
@@ -285,15 +278,13 @@ static ImGuiID rg_grp_key(WGPUStringView prefix)
 
 // DAG view -----------------------------------------------------------------------------------------
 // one box per pass in dependency columns, one pin per access (reads left, writes right), edges run
-// producer-output -> consumer-input. hovering a pin lights the upstream producer cone. reads the internal
-// node structs directly and assumes a compiled, realized graph.
+// producer-output -> consumer-input. reads the internal node structs, so assumes a realized graph.
 
 static constexpr int kRgDagMax = 128;
 static constexpr int kRgGPinMax = 32;   // max interface pins drawn on a collapsed group node (silently capped)
 
-// one laid-out pass box. its index in box[] is the execution-order index, so it doubles as the
-// adjacency / cone index.
-struct RgDagBox { PassNode* p; int layer; ImVec2 tl; float w, h; int nIn, nOut; };
+// one laid-out pass box. its index in box[] is exec order, so it doubles as the adjacency / cone index.
+struct RgDagBox { PassNode* p; ImVec2 tl; float w, h; int nIn, nOut; };
 
 // one access is one pin, writes land on the right
 static bool rg_pass_writes(PassNode* p, uint32_t id)
@@ -303,8 +294,7 @@ static bool rg_pass_writes(PassNode* p, uint32_t id)
     return false;
 }
 
-// does this access consume the resource's prior contents, i.e. earn an input pin? plain reads do, and so
-// does a LoadOp_Load attachment, which therefore gets BOTH an input and an output pin.
+// consumes the prior contents, so earns an input pin. a LoadOp_Load attachment does too, and gets both.
 static bool rg_access_reads(const ResourceAccess& a)
 {
     if (!access_is_write(a.type)) return true;
@@ -312,8 +302,7 @@ static bool rg_access_reads(const ResourceAccess& a)
         && a.loadOp == WGPULoadOp_Load;
 }
 
-// 0 = no common write, 1 = at DIFFERENT subresources (parallel cascades, not a conflict), 2 = at the
-// SAME subresource (a real WAW)
+// 0 = no common write, 1 = DIFFERENT subresources (parallel cascades), 2 = SAME subresource (a real WAW)
 static int rg_shared_write(PassNode* a, PassNode* b)
 {
     int r = 0;
@@ -335,9 +324,8 @@ static int rg_box_index(const RgDagBox* box, int n, PassNode* p)
     return -1;
 }
 
-// the highest-execution-index writer of `id` among p's predecessors. compile() always links the RAW
-// producer into adjacency and a later writer would start a version p cannot see, so the latest
-// writer-predecessor IS the producer. -1 = no in-graph producer, so an external input pin.
+// the latest-executing writer of id among p's predecessors, which compile()'s adjacency makes the
+// producer. -1 = no in-graph producer, so an external input pin.
 static int rg_producer_of(const RgDagBox* box, int n, PassNode* p, uint32_t id)
 {
     int best = -1;
@@ -358,8 +346,7 @@ static int rg_out_slot(PassNode* p, uint32_t id)
     return -1;
 }
 
-// the read side of rg_out_slot. matches the encounter-order slot the pin loop assigns, so it lands on
-// the right pin centre.
+// the read side of rg_out_slot, matching the encounter-order slot the pin loop assigns
 static int rg_in_slot(PassNode* p, uint32_t id)
 {
     int slot = 0;
@@ -369,8 +356,7 @@ static int rg_in_slot(PassNode* p, uint32_t id)
 }
 
 // external interface of the pass run [gi, gj): reads produced outside become in-pins, writes consumed
-// outside (or imported/persistent) become out-pins, interior resources get no pin. both lists dedup and
-// cap at kRgGPinMax silently. one walk for every group node.
+// outside become out-pins, interior resources none. both lists dedup and cap at kRgGPinMax silently.
 static void rg_group_interface(RenderGraph* rg, const RgDagBox* box, int n, int gi, int gj,
     uint32_t* inId, int& nIn, uint32_t* outId, int& nOut)
 {
@@ -406,8 +392,7 @@ static void rg_group_interface(RenderGraph* rg, const RgDagBox* box, int n, int 
     }
 }
 
-// the upstream producer cone: DFS over predecessor edges. iterative, a long chain would overflow the
-// stack.
+// the upstream producer cone, DFS over predecessor edges. iterative, a long chain would blow the stack.
 static void rg_mark_cone(const RgDagBox* box, int n, int seed, bool* inCone)
 {
     if (seed < 0) return;
@@ -447,7 +432,7 @@ static float rg_seg_d2(ImVec2 p, ImVec2 a, ImVec2 b)
 }
 
 // a true graph output: writes an imported resource whose value leaves the frame. compile()'s p->sink
-// also fires for history-only writers, which are not graph outputs, so the halo skips them.
+// also fires for history-only writers, which are not, so the halo skips them.
 static bool rg_pass_is_sink(RenderGraph* rg, PassNode* p)
 {
     for (uint32_t i = 0; i < p->accessCount; ++i) {
@@ -458,8 +443,8 @@ static bool rg_pass_is_sink(RenderGraph* rg, PassNode* p)
     return false;
 }
 
-// shorten `s` until it fits `avail` px, marking the cut with "..". always keeps the START: clipping a
-// right-aligned label from the left turns "clouds.lo_color" into "louds.lo_color", a different resource.
+// shorten s to fit avail px, cut marked with "..". always keeps the START, a left-clipped name reads as
+// a different resource.
 static void rg_fit_text(char* s, float avail)
 {
     if (avail <= 0.0f) { s[0] = '\0'; return; }
@@ -471,8 +456,8 @@ static void rg_fit_text(char* s, float avail)
     s[0] = '\0';   // nothing fits
 }
 
-// round for textures, square for buffers. filled = normal, hollow = external input. the square
-// half-extent equals the circle radius, so one hover ring frames either shape.
+// round for textures, square for buffers, filled = normal, hollow = external input. equal extents, so
+// one hover ring frames either shape.
 static void rg_draw_pin(ImDrawList* dl, ImVec2 c, float r, ImU32 col, bool filled, bool buffer)
 {
     if (buffer) {
@@ -486,10 +471,8 @@ static void rg_draw_pin(ImDrawList* dl, ImVec2 c, float r, ImU32 col, bool fille
     }
 }
 
-// signed horizontal control-point offset for an edge bezier. a plain dx*0.5 suits horizontal hops, but
-// once the drop dwarfs the run it draws a detour around an obstacle that is not there. fade the tangent
-// out with the run/drop ratio, floored so shallow hops keep the rounded look. MUST be shared by the draw
-// and the hit-test, or hovering stops matching where the edge is drawn.
+// signed horizontal control-point offset for an edge bezier, faded out with the run/drop ratio so a
+// steep drop does not bow into a detour around nothing. MUST be shared by the draw and the hit-test.
 static float rg_edge_tangent(ImVec2 a, ImVec2 b)
 {
     const float dx = b.x - a.x, dy = b.y - a.y;
@@ -499,8 +482,7 @@ static float rg_edge_tangent(ImVec2 a, ImVec2 b)
     return dx * 0.5f * k;
 }
 
-// ImDrawList has no dashed stroke, so sample the curve and draw every other span. marks the history
-// feedback links as cross-frame.
+// ImDrawList has no dashed stroke, so sample the curve and draw every other span. marks cross-frame links.
 static void rg_dashed_cubic(ImDrawList* dl, ImVec2 p0, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImU32 col, float th)
 {
     constexpr int kSeg = 24;
@@ -524,30 +506,26 @@ static void rg_arrowhead(ImDrawList* dl, ImVec2 from, ImVec2 tip, ImU32 col, flo
     dl->AddTriangleFilled(tip, a, b, col);
 }
 
-// ---- DAG intermediate representation. a node is a pass or a virtual endpoint, linked by RgEdges. the
-// pass-graph (box[]) still drives layout, the draw consumes this IR for the nodes + virtual links. groups
-// live in the GView side-table. see docs/rendergraph-nested-layout.md.
+// ---- DAG intermediate representation. a node is a pass or a virtual endpoint, linked by RgEdges. box[]
+// still drives layout, groups live in the GView side-table. see docs/rendergraph-nested-layout.md.
 struct RgNode {
-    enum class Kind : uint8_t { Pass, Group, Virtual };
+    enum class Kind : uint8_t { Pass, Virtual };
     Kind kind{};
-    PassNode*      pass{};      // kind::Pass
-    ResourceNode*  res{};       // kind::Virtual (the endpoint's resource)
-    WGPUStringView label{};     // kind::Virtual caption
-    ImVec2 pos{}; float w = 0, h = 0; int col = 0;              // layout result -> consumed by draw
-    ImU32 tint = 0;             // kind::Virtual base colour (read/write/imported/present)
+    PassNode*      pass{};      // Kind::Pass
+    ResourceNode*  res{};       // Kind::Virtual, the endpoint's resource
+    WGPUStringView label{};     // Kind::Virtual caption
+    ImVec2 pos{}; float w = 0, h = 0;   // layout result -> consumed by draw
+    ImU32 tint = 0;             // Kind::Virtual base colour (read/write/imported/present)
 };
 struct RgEdge {
     int srcNode = -1, dstNode = -1; uint16_t srcPin = 0, dstPin = 0; uint32_t resId = 0;
     enum class Kind : uint8_t { Raw, History, Fanout } kind = Kind::Raw;
 };
 
-// barycenter crossing-reduction + y-relax over a layered node set (Sugiyama). lcol[c] = node indices in
-// column c, reordered in place. lleft/lright[i] = neighbours, h[i] = height, writes cy[i]. shared by the
-// top-level layout and each expanded group's interior.
-// clus/clusPar: per-node cluster id + per-cluster parent. keeps every cluster's members contiguous, so an
-// expanded group's members never interleave with outsiders and its border stays a clean hull.
-// thin: this layered node is an edge lane, not a box. charging a lane a full row inflates every column an
-// edge crosses, shoving real boxes apart for traffic.
+// barycenter crossing-reduction + y-relax over a layered node set (Sugiyama). lcol[c] = column members,
+// reordered in place, lleft/lright = neighbours, h = height, writes cy.
+// clus/clusPar: cluster id + parent, keeping a cluster's members contiguous so a group hulls cleanly.
+// thin: an edge lane, not a box. charging a lane a full row shoves real boxes apart for traffic.
 static void rg_barycenter_relax(std::vector<int>* lcol, int maxCol,
     const std::vector<std::vector<int>>& lleft, const std::vector<std::vector<int>>& lright,
     const std::vector<float>& h, std::vector<float>& cy, float rowGap,
@@ -557,7 +535,14 @@ static void rg_barycenter_relax(std::vector<int>* lcol, int maxCol,
     static std::vector<int> lrank; lrank.assign(LN, 0);
     auto reix = [&](int c) { for (int r = 0; r < (int)lcol[c].size(); ++r) lrank[lcol[c][r]] = r; };
     for (int c = 0; c <= maxCol; ++c) reix(c);
-    auto bnb = [&](int li, bool right) { const std::vector<int>& nb = right ? lright[li] : lleft[li]; float s = 0; int c = 0; for (int x : nb) { s += lrank[x]; ++c; } return c ? s / c : -1.0f; };
+    auto bnb = [&](int li, bool right) {
+        const std::vector<int>& nb = right ? lright[li] : lleft[li];
+        float s = 0; int c = 0;
+        for (int x : nb)
+        {
+            s += lrank[x]; ++c;
+        }
+        return c ? s / c : -1.0f; };
     auto lsweep = [&](bool backward) {
         int from = backward ? maxCol - 1 : 1, to = backward ? -1 : maxCol + 1, step = backward ? -1 : 1;
         for (int c = from; c != to; c += step) {
@@ -569,8 +554,8 @@ static void rg_barycenter_relax(std::vector<int>* lcol, int maxCol,
         }
         };
     lsweep(true); lsweep(false); lsweep(true);
-    // re-sort each column so a cluster's members stay together. clusters are weighted by their members'
-    // mean rank, so a group still floats to its barycenter, it just moves as one block.
+    // re-sort each column to keep a cluster's members together, weighted by mean rank so a group still
+    // floats to its barycenter, just as one block.
     if (clus) {
         // root..innermost chain of cluster ids, depth returned. shallow, path length <= ~4.
         auto chain = [&](int li, int* out) -> int {
@@ -583,8 +568,7 @@ static void rg_barycenter_relax(std::vector<int>* lcol, int maxCol,
             cavg.assign(nClus, 0.0f); ccnt.assign(nClus, 0);
             for (int li : m) { int ch[16]; int d = chain(li, ch); for (int i = 0; i < d; ++i) { cavg[ch[i]] += lrank[li]; ++ccnt[ch[i]]; } }
             for (int x = 0; x < nClus; ++x) if (ccnt[x]) cavg[x] /= ccnt[x];
-            // compare down the cluster paths, weighting a shared-prefix cluster by its mean rank and a
-            // node's own level by its rank. first differing weight decides, ties keep stable order.
+            // compare down the cluster paths, first differing weight decides, ties keep stable order
             auto before = [&](int a, int b) -> bool {
                 int ca[16], cb[16]; int da = chain(a, ca), db = chain(b, cb);
                 for (int d = 0;; ++d) {
@@ -599,9 +583,8 @@ static void rg_barycenter_relax(std::vector<int>* lcol, int maxCol,
             reix(c);
         }
     }
-    // gap only BETWEEN two real nodes. a folded member is zero-height and must not reserve a row, or a
-    // collapsed group leaves a tall empty column. an edge lane gets a sliver, since charging it a whole
-    // rowGap scaled a column's height with the traffic crossing it.
+    // gap only between two real nodes. a folded member is zero-height and reserves nothing, an edge lane
+    // gets a sliver so a column's height does not scale with the traffic crossing it.
     auto gap = [&](int a, int b) {
         if (h[a] <= 0.5f || h[b] <= 0.5f) return 0.0f;
         if (thin && (thin[a] || thin[b])) return rowGap * 0.5f;
@@ -624,8 +607,7 @@ static void rg_barycenter_relax(std::vector<int>* lcol, int maxCol,
         }
 }
 
-// the first `segs` dotted segments of `name`: "bloom.down.0" with segs=2 -> "bloom.down". empty if the
-// name has fewer. generalizes group_prefix (the segs==1 case) so a group tree can partition each level.
+// the first segs dotted segments of name: "bloom.down.0" with segs=2 -> "bloom.down", empty if fewer
 static WGPUStringView group_prefix_n(WGPUStringView name, int segs)
 {
     size_t n = sv_length(name); int seen = 0;
@@ -635,22 +617,16 @@ static WGPUStringView group_prefix_n(WGPUStringView name, int segs)
 }
 
 // a contiguous run [gi, gj) of box[], contiguous because passes are declared grouped. gtree[0] is the
-// root. kids are deeper sub-runs, and passes no kid covers are this node's leaf members. layout fields are
-// filled post-order by layout_gnode, relative to the node's content origin.
+// root, kids are deeper sub-runs, and passes no kid covers are this node's leaf members.
 struct GNode {
-    WGPUStringView prefix;     // full dotted prefix at this depth ("bloom", "bloom.down"); empty at root
+    WGPUStringView prefix;     // full dotted prefix at this depth ("bloom", "bloom.down"), empty at root
     int gi, gj, depth;
     bool collapsed;
     std::vector<int> kids;     // child GNode indices in the gtree arena
-    float w, h;                // box (collapsed) or region (expanded) size, content-local
-    int nIn, nOut;
-    uint32_t inId[kRgGPinMax], outId[kRgGPinMax];
-    float inY[kRgGPinMax], outY[kRgGPinMax];   // interface pin y, relative to the node top
 };
 
-// build the group tree over box[gi, gj), returning the new node's index. partitions into maximal sub-runs
-// sharing their first depth+1 segments, and a run of >=2 that is not the whole range becomes a child.
-// collapse state is the tri-state ImGuiStorage the draw uses: 0 follow-default, 1 open, 2 closed.
+// build the group tree over box[gi, gj), returning the new node index. partitions into maximal sub-runs
+// sharing their first depth+1 segments. collapse state is tri-state: 0 follow-default, 1 open, 2 closed.
 static int build_gtree(std::vector<GNode>& gtree, const RgDagBox* box, int n,
     ImGuiStorage* grpStore, bool collapseDefault, int gi, int gj, int depth, WGPUStringView prefix)
 {
@@ -671,9 +647,8 @@ static int build_gtree(std::vector<GNode>& gtree, const RgDagBox* box, int n,
     return self;
 }
 
-// the OUTERMOST collapsed group ancestor of pass k, -1 if visible at every level. a pass with an owner is
-// hidden, and the owner's first member is the rep standing in for the whole subtree. top-level and nested
-// collapse differ only in where the rep cell lands, not in how membership is decided.
+// the outermost collapsed group ancestor of pass k, -1 if visible at every level. an owned pass is hidden
+// and the owner's first member is the rep standing in for the whole subtree.
 static void rg_mark_collapsed(const std::vector<GNode>& gt, int* collOwner, int node, int owner)
 {
     const GNode& g = gt[node];
@@ -684,8 +659,7 @@ static void rg_mark_collapsed(const std::vector<GNode>& gt, int* collOwner, int 
 }
 
 // the innermost EXPANDED gtree node containing pass k, and its parent. drives the cluster-contiguity
-// ordering so an expanded group and its expanded subgroups lay out as one block. a collapsed group folds,
-// so its subtree is not descended and members keep their nearest expanded ancestor.
+// ordering so a group and its expanded subgroups lay out as one block.
 static void rg_assign_clusters(const std::vector<GNode>& gt, int* clusterOf, int* clusterParent, int node)
 {
     const GNode& g = gt[node];
@@ -697,19 +671,6 @@ static void rg_assign_clusters(const std::vector<GNode>& gt, int* clusterOf, int
     for (int kid : g.kids) rg_assign_clusters(gt, clusterOf, clusterParent, kid);
 }
 
-// leaves a box horizontally, S-curves to a flat top lane, runs across, S-curves back down. horizontal
-// tangents at the pins AND the plateau, so no corner is sharp.
-static void rg_over_arc(ImDrawList* dl, ImVec2 a, ImVec2 b, float topY, ImU32 col, float th, float maxSh)
-{
-    float dx = b.x - a.x, adx = dx < 0 ? -dx : dx, dir = dx < 0 ? -1.0f : 1.0f;
-    float sh = adx * 0.5f; if (sh > maxSh) sh = maxSh;   // shoulder run; shrinks for short hops so the two S's don't overlap
-    ImVec2 aTop(a.x + dir * sh, topY), bTop(b.x - dir * sh, topY);
-    float m1 = a.x + dir * sh * 0.5f, m2 = b.x - dir * sh * 0.5f;
-    dl->AddBezierCubic(a, ImVec2(m1, a.y), ImVec2(m1, topY), aTop, col, th);
-    if ((bTop.x - aTop.x) * dir > 0.5f) dl->AddLine(aTop, bTop, col, th);
-    dl->AddBezierCubic(bTop, ImVec2(m2, topY), ImVec2(m2, b.y), b, col, th);
-}
-
 static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
 {
     float kBoxW = 190.0f, kColGap = 65.0f, kRowGap = 50.0f;
@@ -717,15 +678,14 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     float kPinR = 5.0f, kPinHit = 8.0f;
     float kRegionPad = 24.0f;   // padding from a group's member bbox out to its hull border
 
-    // resolved BEFORE layout, so positions, scrolling and font all use one zoom this frame. resolving it
-    // after layout drew the graph at the old scale for a frame and flickered.
+    // resolved BEFORE layout so positions, scrolling and font share one zoom, else the graph flickers a frame
     static ImVec2 scrolling(0, 0);
     static bool userMoved = false;          // true once the user pans/zooms; until then keep the graph centred
     static bool s_canvasHovered = false;    // last frame's hover (input is read before the canvas item exists)
     static ImVec2 s_winPos(0, 0);           // last frame's canvas top-left, for the cursor-anchored zoom
 
     // 1.0 is closest, the authored sizes, and the wheel only zooms OUT toward the cursor. every layout
-    // constant scales by it so layout and draw stay one coordinate system. text scales separately.
+    // constant scales by it so layout and draw stay one coordinate system.
     static float zoom = 1.0f;
     {
         ImGuiIO& io = ImGui::GetIO();
@@ -750,8 +710,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     // frame-boundary endpoints, toggled from the toolbar. read before layout, so disabling them also drops
     // their layout influence.
     static bool showVirtual = true;
-    // imported buffers: on = one source node fanning faint edges to every reader, off = a node per use
-    // site. read here so it shapes the layout too.
+    // imported buffers: on = one source fanning faint edges to every reader, off = a node per use site
     static bool fanBuffers = true;
     // read before layout, so a collapsed group reserves its compact slot the same frame the checkbox flips
     static bool collapseDefault = false;
@@ -759,9 +718,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     ImGuiStorage* grpStore = ImGui::GetStateStorage();
 
     // ---- layout pass, sink-anchored Sugiyama. column = longest distance TO a sink over the FULL
-    // dependency graph, so sinks land rightmost and a WAW-ordered pass still sits in order rather than
-    // floating off as a fake sink. crossing reduction counts only the DRAWN edges, since WAW has no pin to
-    // cross. one barycenter sweep back from the sinks, then a settle.
+    // dependency graph, so sinks land rightmost and a WAW-ordered pass keeps its place. crossing reduction
+    // counts only the DRAWN edges, since WAW has no pin to cross.
     RgDagBox box[kRgDagMax];
     int n = 0;
     for (PassNode* p = s.m_passes; p && n < kRgDagMax; p = p->next, ++n) {
@@ -772,13 +730,22 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         }
         int rows = nIn > nOut ? nIn : nOut;
         float h = kHeaderH + (rows ? rows * kPinRowH : kMinBodyH) + kFooterH;
-        box[n] = { p, 0, ImVec2(0, 0), kBoxW, h, nIn, nOut };
+        box[n] = { p, ImVec2(0, 0), kBoxW, h, nIn, nOut };
     }
     // so the toolbar can flag a graph larger than the DAG cap, which truncates silently
     int rgPassTotal = 0; for (PassNode* q = s.m_passes; q; q = q->next) ++rgPassTotal;
 
-    // longest path to a sink over all deps. reverse exec order visits sinks first and relaxes each
-    // producer, then column = maxDist - dist.
+    // NOTE: the layout below is ~O(n^4) in edges, fine for the sparse real graphs, minutes of frozen
+    // UI for a dense synthetic one. upgrade path: memoize rg_producer_of / rg_box_index if one appears.
+    int rgEdges = 0; for (int i = 0; i < n; ++i) for (NodeAdjacency* a = box[i].p->adjacency; a; a = a->next) ++rgEdges;
+    if (rgEdges > 1000) {
+        ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.30f, 1),
+            "graph too dense to lay out: %d passes, %d dependency edges (DAG view caps at 1000). "
+            "Lifetimes / Memory / Timings tabs still work.", n, rgEdges);
+        return;
+    }
+
+    // longest path to a sink over all deps, relaxed in reverse exec order. column = maxDist - dist.
     int dist[kRgDagMax] = {}, maxDist = 0;
     for (int i = n - 1; i >= 0; --i) {
         for (NodeAdjacency* a = box[i].p->adjacency; a; a = a->next) {
@@ -788,10 +755,9 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         if (dist[i] > maxDist) maxDist = dist[i];
     }
 
-    // passes writing one resource at DIFFERENT subresources with no data dependency, e.g. CSM cascades.
-    // the whole-resource WAW would string them across columns, so union them onto one level instead.
-    // anc[v][u] means u is a transitive ancestor of v, so a real chain like a mip pyramid is not
-    // mistaken for parallel.
+    // passes writing one resource at different subresources with no data dependency, e.g. CSM cascades.
+    // the whole-resource WAW would string them across columns, so union them onto one level. anc[v][u]
+    // (u is a transitive ancestor of v) guards a real chain like a mip pyramid from looking parallel.
     static bool anc[kRgDagMax][kRgDagMax];
     for (int v = 0; v < n; ++v) for (int u = 0; u < n; ++u) anc[v][u] = false;
     for (int v = 0; v < n; ++v) {
@@ -823,8 +789,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     for (int i = 0; i < n; ++i) colOf[i] = remap[colOf[i]];
     maxDist = nextCol ? nextCol - 1 : 0;
 
-    // built here, where columns are final, and consumed by the layout + draw. NOTE(Huerbe): not yet wired
-    // into layout, the reservation blocks below still run. this only stands the structure up.
+    // built here, where columns are final. NOTE(Huerbe): not yet wired into layout, the blocks below still run.
     static std::vector<GNode> gtree; gtree.clear();
     build_gtree(gtree, box, n, grpStore, collapseDefault, 0, n, 0, WGPUStringView{});
     IM_ASSERT(gtree[0].gi == 0 && gtree[0].gj == n);
@@ -833,10 +798,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     // a pass inside ANY collapsed group is not drawn as its own box, the group draws one node in its place
     bool drawHidden[kRgDagMax]; for (int i = 0; i < n; ++i) drawHidden[i] = collOwner[i] >= 0;
 
-    // ---- collapse folding, pre-layout. every OUTERMOST collapsed group folds to ONE node at its rep
-    // cell, and the other members get zero height and snap onto the rep's column so they reserve nothing.
-    // EXPANDED groups reserve no slot: their members stay first-class nodes in their own columns, held
-    // together by the cluster-contiguity pass and hulled later.
+    // ---- collapse folding, pre-layout. every OUTERMOST collapsed group folds to ONE node at its rep cell,
+    // the other members go zero-height on the rep's column. EXPANDED groups keep first-class members.
     float effH[kRgDagMax];
     for (int i = 0; i < n; ++i) effH[i] = box[i].h;
     for (int o = 0; o < (int)gtree.size(); ++o) {
@@ -856,9 +819,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     static std::vector<int> clusterParent; clusterParent.assign(gtree.size(), -1);
     rg_assign_clusters(gtree, clusterOf, clusterParent.data(), 0);
 
-    // recompute columns with each collapsed group contracted to its rep: an edge inside costs 0, a
-    // crossing edge 1. a consumer of a collapsed sub-chain then lands right after the rep instead of where
-    // the unfolded chain stranded it. expanded groups reproduce the original columns exactly.
+    // recompute columns with each collapsed group contracted to its rep, an interior edge costing 0. a
+    // consumer then lands right after the rep instead of where the unfolded chain stranded it.
     {
         int rep[kRgDagMax]; for (int i = 0; i < n; ++i) rep[i] = collOwner[i] >= 0 ? gtree[collOwner[i]].gi : i;
         int dist2[kRgDagMax]; for (int i = 0; i < n; ++i) dist2[i] = 0; int maxD2 = 0;
@@ -882,17 +844,12 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         maxDist = nextCol ? nextCol - 1 : 0;
     }
 
-    // ---- virtual nodes: frame-boundary endpoints drawn as real DAG nodes, so the column/barycenter/y
-    // code places them like any pass. each attaches to ONE pass pin, a read one column before its reader and
-    // a write one column after its writer, so a widely-read texture gets a small node per use site rather
-    // than one node fanning edges everywhere. three kinds, all gated by the toolbar toggle:
-    //   * history: curr (written this frame for next) and prev (last frame's curr). cross-frame, so no
-    //     in-frame edge joins the pair.
-    //   * external input: an imported resource read with no in-graph writer. a texture gets a node per
-    //     reader, a buffer gets ONE source fanning faint edges, so a uniform does not swamp the view.
-    //   * present: an imported resource that IS written, the swapchain.
-    // an endpoint for a pass inside an expanded group parks in the column JUST OUTSIDE it, so the relax
-    // reserves space outside the hull rather than at member_col +/-1, which can land inside the border.
+    // ---- virtual nodes: frame-boundary endpoints laid out like any pass, each attached to ONE pass pin,
+    // so a widely-read texture gets a node per use site. three kinds, all gated by the toolbar toggle:
+    //   * history: curr and prev, cross-frame, so no in-frame edge joins the pair
+    //   * external input: imported, read, no in-graph writer. a buffer gets ONE source fanning faint edges
+    //   * present: an imported resource that IS written, the swapchain
+    // an endpoint inside an expanded group parks JUST OUTSIDE it, so the relax reserves space off the hull.
     static std::vector<int> vReadCol, vWriteCol; vReadCol.assign(n, 0); vWriteCol.assign(n, 0);
     for (int i = 0; i < n; ++i) { vReadCol[i] = colOf[i] - 1; vWriteCol[i] = colOf[i] + 1; }
     {
@@ -922,8 +879,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     };
     if (showVirtual)
         for (ResourceNode* r = s.m_resouces; r; r = r->next) {
-            // keyed on `history`, NOT `persistent`, which also covers plain create_persistent_* resources.
-            // keying this arm on persistent swallowed those, leaving them with no endpoint at all.
+            // keyed on history, NOT persistent, which also covers create_persistent_* and would swallow
+            // their endpoints entirely
             if (r->history) {   // history: write node at the curr writer, read node at each prev reader
                 bool curr = r->historyIndex == 0;
                 for (int i = 0; i < n; ++i) {
@@ -932,11 +889,10 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
                 }
                 continue;
             }
-            // imported is caller-owned, plain persistent is pool-backed and carried in place. either way
-            // the value crosses the frame boundary rather than being produced here, so both earn an endpoint.
+            // imported is caller-owned, persistent is pool-backed. either way the value crosses the frame
+            // boundary rather than being produced here, so both earn an endpoint.
             if (!r->imported && !r->persistent) {
-                // graph-owned and written but never read, so the store is wasted and StoreOp_Discard would
-                // make it memoryless. worth a marker rather than a dangling pin.
+                // written but never read, so the store is wasted. worth a marker, not a dangling pin.
                 int lw = -1, lwSlot = -1, readers = 0;
                 for (int i = 0; i < n; ++i) {
                     int sl = rg_out_slot(box[i].p, r->handle.id);
@@ -951,14 +907,14 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
             const ImU32 writeTint = r->imported ? kRGPresent : kRGWrite;
             int lwb = -1, lws = -1;   // last writer, if any
             for (int i = 0; i < n; ++i) { int sl = rg_out_slot(box[i].p, r->handle.id); if (sl >= 0) { lwb = i; lws = sl; } }
-            // source and sink are independent, not an either/or on whether anything writes this. the
-            // swapchain is both: blitted with LoadOp_Load, so keying the source off `lwb < 0` hid the input.
+            // source and sink are independent, not an either/or. the swapchain is both, blitted with
+            // LoadOp_Load, so keying the source off lwb < 0 hid the input.
             auto externalRead = [&](int i) {
                 return rg_in_slot(box[i].p, r->handle.id) >= 0 && rg_producer_of(box, n, box[i].p, r->handle.id) < 0;
             };
             if (r->imported && r->kind == ResourceKind::Buffer && fanBuffers) {
                 // a uniform is read almost everywhere, so emit ONE source at its earliest reader and let
-                // the draw fan faint edges out. imported only, the IR's fan-out edge kind keys on that too.
+                // the draw fan faint edges out. imported only, like the IR's fan-out edge kind.
                 int best = -1, bestSl = -1;
                 for (int i = 0; i < n; ++i) { if (!externalRead(i)) continue; if (best < 0 || colOf[i] < colOf[best]) { best = i; bestSl = rg_in_slot(box[i].p, r->handle.id); } }
                 if (best >= 0) push_tnode(true, best, bestSl, r, readCap, kRGExt);
@@ -1011,8 +967,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         for (int t = 0; t < e.chainN; ++t) { lright[prev].push_back(e.chain[t]); lleft[e.chain[t]].push_back(prev); prev = e.chain[t]; }
         lright[prev].push_back(e.dst); lleft[e.dst].push_back(prev);
     }
-    // a read node sits left of its reader, a write node right of its writer. one link each is enough to
-    // order them and align them to the pass's row.
+    // a read node sits left of its reader, a write node right of its writer. one link each orders and aligns.
     for (TNode& t : tnodes)
         if (t.isRead) { lright[t.li].push_back(t.passBox); lleft[t.passBox].push_back(t.li); }
         else          { lright[t.passBox].push_back(t.li); lleft[t.li].push_back(t.passBox); }
@@ -1022,30 +977,27 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     static std::vector<int> lclus; lclus.assign(LN, -1);
     for (int i = 0; i < n; ++i) lclus[i] = clusterOf[i];
     {
-        static std::vector<char> anc; anc.assign(gtree.size(), 0);
+        static std::vector<char> clusMark; clusMark.assign(gtree.size(), 0);
         auto lca = [&](int a, int b) -> int {
             if (a < 0 || b < 0) return -1;
-            for (int x = a; x >= 0; x = clusterParent[x]) anc[x] = 1;
-            int r = -1; for (int x = b; x >= 0; x = clusterParent[x]) if (anc[x]) { r = x; break; }
-            for (int x = a; x >= 0; x = clusterParent[x]) anc[x] = 0;
+            for (int x = a; x >= 0; x = clusterParent[x]) clusMark[x] = 1;
+            int r = -1; for (int x = b; x >= 0; x = clusterParent[x]) if (clusMark[x]) { r = x; break; }
+            for (int x = a; x >= 0; x = clusterParent[x]) clusMark[x] = 0;
             return r;
         };
         for (REdge& e : edge) { int ec = lca(clusterOf[e.src], clusterOf[e.dst]); for (int t = 0; t < e.chainN; ++t) lclus[e.chain[t]] = ec; }
     }
 
-    // ---- independent work graphs, laid out separately. disconnected components were right-anchored to the
-    // global sink column, so they shared buckets and the barycenter + width passes cross-influenced them.
-    // give each component its own disjoint dense column range from its base. a component is gap-free within
-    // its span, so base + (col - min) remaps it densely and the ranges sum to <= n columns. each bucket then
-    // holds one component, and a vertical band separates them.
+    // ---- independent work graphs, laid out separately. each component gets its own disjoint dense column
+    // range, so the barycenter and width passes stop cross-influencing, and a vertical band separates them.
     static std::vector<int> comp; comp.assign(LN, 0);
     static std::vector<int> compMinCol; compMinCol.assign(LN, 1 << 30);
     {
         for (int li = 0; li < LN; ++li) comp[li] = li;
         auto cfind = [&](int x) { while (comp[x] != x) { comp[x] = comp[comp[x]]; x = comp[x]; } return x; };
         for (int li = 0; li < LN; ++li) { for (int x : lleft[li]) comp[cfind(li)] = cfind(x); for (int x : lright[li]) comp[cfind(li)] = cfind(x); }
-        // a group run draws as one bordered region, so force it into one component. clear-only members have
-        // no read edge, so each would otherwise split off and the banding would stack them.
+        // a group run draws as one bordered region, so force it into one component. clear-only members
+        // have no read edge and would otherwise each split off.
         for (int ga = 0; ga < n;) {
             WGPUStringView pre = group_prefix(box[ga].p->id.name);
             int gb = ga + 1;
@@ -1092,9 +1044,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         for (int li = 0; li < LN; ++li) cy[li] += cOff[comp[li]];
     }
 
-    // shove non-members out of each expanded group's band so the hull encloses ONLY its members, e.g. a
-    // history node the relax floated into a column the group spans. deepest-first, so a node ends up outside
-    // the OUTERMOST band it intruded on.
+    // shove non-members out of each expanded group's band so the hull encloses only its members. deepest
+    // first, so a node ends up outside the OUTERMOST band it intruded on.
     {
         auto inSub = [&](int li, int anc) { for (int c = lclus[li]; c >= 0; c = clusterParent[c]) if (c == anc) return true; return false; };
         for (int o = (int)gtree.size() - 1; o >= 1; --o) {
@@ -1110,8 +1061,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
             if (colMax < colMin) continue;
             float hullTop = bandTop - kRegionPad - kHeaderH, hullBot = bandBot + kRegionPad, mid = (bandTop + bandBot) * 0.5f;
             const float kClear = kRowGap * 0.5f;
-            // decide first, then place. evicted only if it is a non-member, sits under the hull's columns,
-            // is not wired to a member (those belong AT the border), and actually overlaps the band.
+            // decide first, then place. evict a non-member under the hull's columns, not wired to a member
+            // (those belong AT the border), that actually overlaps the band.
             static std::vector<char> evict; evict.assign(LN, 0);
             for (int li = 0; li < LN; ++li) {
                 if (inSub(li, o)) continue;                                      // a member / interior dummy belongs inside
@@ -1125,11 +1076,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
                 if (b <= hullTop || t >= hullBot) continue;                      // already clear
                 evict[li] = 1;
             }
-            // place each evicted node in the nearest free gap on its side. two things at once: several
-            // evictions in one column must stack (the frontier), and a slot must not land on a node staying
-            // put there (the walk). the exempt linked endpoints are exactly that hazard, parking at the
-            // border where the frontier starts. walking past only what is in the way keeps the node near the
-            // pass it annotates.
+            // place each evicted node in the nearest free gap on its side. the frontier stacks several
+            // evictions in one column, the walk steps past nodes staying put, keeping each near its pass.
             static std::vector<float> topFront, botFront;
             topFront.assign(maxDist + 1, hullTop - kClear);
             botFront.assign(maxDist + 1, hullBot + kClear);
@@ -1138,23 +1086,22 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
                 const int c = lnode[li].col;
                 const float h = lh[li];
                 const bool up = cy[li] < mid;
-                float edge = up ? topFront[c] : botFront[c];   // free boundary to grow from
+                float front = up ? topFront[c] : botFront[c];   // free boundary to grow from
                 for (int guard = 0; guard < LN + 2; ++guard) {
-                    const float t = up ? edge - h : edge, b = up ? edge : edge + h;
+                    const float t = up ? front - h : front, b = up ? front : front + h;
                     int hit = -1;
                     for (int x = 0; x < LN && hit < 0; ++x) {
                         if (x == li || evict[x] || lnode[x].col != c) continue;
-                        // only dodge things that draw a box. a bare dummy is an edge lane, and a busy column
-                        // carries one per through-edge, which is how endpoints ended up hundreds of px away.
+                        // only dodge things that draw a box, a busy column carries one lane per through-edge
                         if (lnode[x].box < 0 && lnode[x].tn < 0) continue;
                         const float xt = cy[x] - lh[x] * 0.5f, xb = cy[x] + lh[x] * 0.5f;
                         if (b > xt && t < xb) hit = x;
                     }
                     if (hit < 0) break;
-                    edge = up ? cy[hit] - lh[hit] * 0.5f - kClear : cy[hit] + lh[hit] * 0.5f + kClear;
+                    front = up ? cy[hit] - lh[hit] * 0.5f - kClear : cy[hit] + lh[hit] * 0.5f + kClear;
                 }
-                cy[li] = up ? edge - h * 0.5f : edge + h * 0.5f;
-                if (up) topFront[c] = edge - h - kClear; else botFront[c] = edge + h + kClear;
+                cy[li] = up ? front - h * 0.5f : front + h * 0.5f;
+                if (up) topFront[c] = front - h - kClear; else botFront[c] = front + h + kClear;
             }
         }
     }
@@ -1164,15 +1111,14 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     // every node is one box wide, expanded groups reserve no wide region, so column x is a uniform cadence
     float colW[kRgDagMax], colX[kRgDagMax];
     for (int c = 0; c <= maxDist; ++c) colW[c] = kBoxW;
-    // an endpoint is centred in its column and a long resource name can outgrow a pass box, so widen the
-    // column to fit. otherwise it overhangs kColGap both sides and eventually lands on the neighbours.
+    // a long endpoint name can outgrow a pass box, so widen the column or it overhangs onto the neighbours
     for (const TNode& t : tnodes) { int c = lnode[t.li].col; if (t.w > colW[c]) colW[c] = t.w; }
     colX[0] = 0; for (int c = 1; c <= maxDist; ++c) colX[c] = colX[c - 1] + colW[c - 1] + kColGap;
     for (int c = 0; c <= maxDist; ++c) {
         for (int li : lcol[c]) {
             float cx = colX[c] - colX[compMinCol[comp[li]]];   // left-align this component to x=0
             if (lnode[li].box >= 0) {
-                int b = lnode[li].box; box[b].tl = ImVec2(cx, cy[li] - effH[b] * 0.5f); box[b].layer = c;
+                int b = lnode[li].box; box[b].tl = ImVec2(cx, cy[li] - effH[b] * 0.5f);
                 if (cx < gxMin) gxMin = cx; if (cx + box[b].w > gxMax) gxMax = cx + box[b].w;
                 if (box[b].tl.y < gyMin) gyMin = box[b].tl.y; if (box[b].tl.y + effH[b] > gyMax) gyMax = box[b].tl.y + effH[b];
             }
@@ -1188,11 +1134,9 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
             }
         }
     }
-    // ---- lane pull. the relax minimises CROSSINGS, not detour, so a lane can end up far past the box it
-    // dodged and turn a short hop into a canvas-spanning swoop. pull each lane onto the straight line
-    // between its pins, then push it clear. obstacles include lanes already placed this pass, which is what
-    // stops parallel edges collapsing onto one ideal line. the push direction is fixed on the first hit, so
-    // a lane wedged between two obstacles walks out one side instead of oscillating.
+    // ---- lane pull. the relax minimises CROSSINGS, not detour, so pull each lane back onto the straight
+    // line between its pins, then push it clear. obstacles include lanes already placed, which keeps
+    // parallel edges apart, and the push direction is fixed on the first hit so a wedged lane cannot oscillate.
     {
         static std::vector<char> laneSet; laneSet.assign(LN, 0);
         auto extent = [&](int x, float& t, float& b) -> bool {   // vertical extent of an obstacle, false = not one
@@ -1201,8 +1145,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
             if (laneSet[x])        { t = lnode[x].y - kLane * 0.5f; b = lnode[x].y + kLane * 0.5f; return true; }
             return false;
         };
-        // hull band of every expanded group, mirroring the draw's border rect, so a lane can be held inside
-        // the group it belongs to
+        // hull band of every expanded group, mirroring the draw's border rect, so a lane can be held inside it
         static std::vector<float> gTop, gBot; static std::vector<int> gcMin, gcMax;
         gTop.assign(gtree.size(), 0.0f); gBot.assign(gtree.size(), 0.0f);
         gcMin.assign(gtree.size(), 1 << 30); gcMax.assign(gtree.size(), -1);
@@ -1221,9 +1164,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
             if (b0 < t0) { gcMax[o] = -1; continue; }
             gTop[o] = t0 - kRegionPad - kHeaderH; gBot[o] = b0 + kRegionPad;
         }
-        // two rounds, and the order is the point. a lane with an endpoint inside a group must stay in that
-        // group's often-few-px band or the edge visibly leaves the hull. a pass-through edge has no such
-        // constraint, so it claims last, or it takes the interior slots first and evicts the constrained one.
+        // two rounds, and the order is the point. a lane ending inside a group must stay in its narrow band,
+        // so the unconstrained pass-through lanes claim last.
         for (int round = 0; round < 2; ++round)
         for (REdge& e : edge) {
             if (!e.chainN) continue;
@@ -1243,9 +1185,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
                     const GNode& g = gtree[o];
                     return (e.src >= g.gi && e.src < g.gj) || (e.dst >= g.gi && e.dst < g.gj);
                 };
-                // inside a group the edge heads for that group's BORDER pin, not its far endpoint, so the
-                // global source->dest line is the wrong target: a destination below the hull aims the lane
-                // straight out through the floor. hold it in the band of every group it belongs to.
+                // inside a group the edge heads for that group's BORDER pin, so the global source->dest line
+                // aims the lane out through the hull floor. hold it in the band of every group it belongs to.
                 auto holdInOwn = [&](float y) {
                     for (int o = 1; o < (int)gtree.size(); ++o) {
                         if (gcMax[o] < gcMin[o] || c < gcMin[o] || c > gcMax[o] || !belongsTo(o)) continue;
@@ -1254,9 +1195,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
                     }
                     return y;
                 };
-                // walk out from `start` until nothing overlaps. a FOREIGN hull counts as one solid obstacle:
-                // pushing just outside it up front was not enough, since a later step of this walk would
-                // deposit the lane back inside.
+                // walk out from start until nothing overlaps. a FOREIGN hull counts as one solid obstacle,
+                // or a later step of the walk deposits the lane back inside it.
                 auto settle = [&](float start, int dir) {
                     float y = start;
                     for (int guard = 0; guard < LN + 8; ++guard) {
@@ -1278,8 +1218,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
                     return y;
                 };
                 want = holdInOwn(want);
-                // try BOTH sides and keep the nearer resting place. the nearer side of the FIRST obstacle can
-                // hide a whole group hull to climb, where the other way clears one box.
+                // try BOTH sides and keep the nearer resting place, the first obstacle's near side can hide
+                // a whole hull to climb
                 const float up = settle(want, -1), down = settle(want, +1);
                 want = holdInOwn((want - up <= down - want) ? up : down);
                 lnode[li].y = want; laneSet[li] = 1;
@@ -1295,7 +1235,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     static std::vector<RgEdge> rge; rge.clear();
     for (int i = 0; i < n; ++i) {
         RgNode nd{}; nd.kind = RgNode::Kind::Pass; nd.pass = box[i].p;
-        nd.label = box[i].p->id.name; nd.pos = box[i].tl; nd.w = box[i].w; nd.h = box[i].h; nd.col = box[i].layer;
+        nd.label = box[i].p->id.name; nd.pos = box[i].tl; nd.w = box[i].w; nd.h = box[i].h;
         rgn.push_back(nd);
     }
     for (REdge& e : edge) {
@@ -1303,14 +1243,13 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         ge.srcPin = (uint16_t)e.sOut; ge.dstPin = (uint16_t)e.dIn; ge.resId = e.id; ge.kind = RgEdge::Kind::Raw;
         rge.push_back(ge);
     }
-    // one Virtual RgNode at its laid-out spot + an RgEdge per link to the anchor pin, a fan source emitting
-    // one per reader. additive for now, the draw still reads tnodes.
+    // one Virtual RgNode per endpoint + an RgEdge per link, a fan source emitting one per reader
     for (TNode& t : tnodes) {
         int vi = (int)rgn.size();
         RgNode nd{}; nd.kind = RgNode::Kind::Virtual; nd.res = t.res;
         nd.label = WGPUStringView{ t.cap, t.cap ? strlen(t.cap) : 0 };
         nd.pos = ImVec2(lnode[t.li].x - t.w * 0.5f, lnode[t.li].y - t.h * 0.5f);
-        nd.w = t.w; nd.h = t.h; nd.col = t.col; nd.tint = t.tint;
+        nd.w = t.w; nd.h = t.h; nd.tint = t.tint;
         rgn.push_back(nd);
         RgEdge::Kind ek = t.res->persistent ? RgEdge::Kind::History : RgEdge::Kind::Raw;
         bool fan = fanBuffers && t.isRead && t.res->imported && t.res->kind == ResourceKind::Buffer;
@@ -1332,8 +1271,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     if (rgPassTotal > n) { ImGui::SameLine(); ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.30f, 1), "|  showing %d of %d passes (cap %d)", n, rgPassTotal, kRgDagMax); }
     const bool filterActive = filter[0] != 0;
 
-    // drag left/middle to pan, wheel to zoom, handled at the top before layout. no scrollbar, navigation is
-    // panning, so a big graph is not boxed in.
+    // drag left/middle to pan, wheel to zoom, handled before layout. no scrollbar, so a big graph fits.
     ImGui::BeginChild("rg_canvas", ImVec2(0, 0), true,
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoMove);
     ImGui::SetWindowFontScale(zoom);   // text scales with the canvas; restored to 1.0 before the overlays
@@ -1348,8 +1286,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     if (canvasActive && (ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f) || ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f))) {
         scrolling.x += io.MouseDelta.x; scrolling.y += io.MouseDelta.y; userMoved = true; panned = true;
     }
-    // snap to the graph's top-left until the user pans, riding through the frames where the content region
-    // is still settling. reset and a double-click re-arm it.
+    // snap to the graph's top-left until the user pans, riding out the frames where the region still settles
     if (doReset || (canvasHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))) userMoved = false;
     if (doReset) zoom = 1.0f;   // reset view also returns to the closest zoom
     if (!userMoved && !panned && winSize.x > 1 && winSize.y > 1) {
@@ -1367,10 +1304,9 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     for (float gy = std::fmod(scrolling.y, kGrid); gy < winSize.y; gy += kGrid)
         dl->AddLine(ImVec2(winPos.x, winPos.y + gy), ImVec2(winPos.x + winSize.x, winPos.y + gy), IM_COL32(255, 255, 255, 14));
 
-    // ---- group runs: a contiguous run of passes sharing a dotted-name prefix is one logical group.
-    // expanded draws a labelled frame behind the members, collapsed draws one synthetic node carrying the
-    // external pins. the collapse flag is a tri-state in ImGuiStorage (0 follow-default, 1 open, 2 closed),
-    // so it survives the per-frame rebuild and the toolbar can flip every group at once.
+    // ---- group runs: a contiguous run of passes sharing a dotted-name prefix is one logical group. expanded
+    // draws a labelled frame, collapsed one synthetic node with the external pins. the tri-state collapse
+    // flag lives in ImGuiStorage, so it survives the per-frame rebuild.
     struct GView {
         int gi, gj, depth; WGPUStringView prefix; bool collapsed; ImGuiID key;   // depth 1 = top-level group, >=2 = subgroup
         ImVec2 bb0, bb1, h0, h1;                                    // box rect + header (click) rect, screen
@@ -1380,10 +1316,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     static std::vector<GView> groups; groups.clear();
     static std::vector<int> nodeGView; nodeGView.assign(gtree.size(), -1);   // gtree node index -> its GView in groups (subgroups), else -1
     int groupOf[kRgDagMax]; for (int i = 0; i < n; ++i) groupOf[i] = -1;
-    // the barycentre of the member pins it serves INSIDE and the external pins it serves OUTSIDE. weighing
-    // only the inside puts the pin beside its members but leaves the outside to tangle. for a COLLAPSED
-    // group the inside term is constant, so the result orders by the outside anchors, which is what you want
-    // when the interior is not drawn.
+    // barycentre of the member pins served INSIDE and the external pins served OUTSIDE. weighing only the
+    // inside leaves the outside to tangle, and for a collapsed group the inside term is constant anyway.
     auto ifaceY = [&](int gi, int gj, uint32_t id, bool write, float fb) -> float {
         float inSum = 0, outSum = 0; int inCnt = 0, outCnt = 0;
         for (int k = 0; k < n; ++k) {
@@ -1414,10 +1348,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         }
         return c;
     };
-    // order a group's interface pins by counting crossings directly rather than via a barycentre, which is
-    // only a proxy and breaks when the two sides disagree: averaging then splits the difference and leaves
-    // crossings on both. count, per adjacent pair, how many edge pairs invert either way and swap when that
-    // lowers it. pin counts are tiny, so adjacent exchange is plenty and always terminates.
+    // order a group's interface pins by counting crossings directly. a barycentre is only a proxy and splits
+    // the difference when the two sides disagree. pin counts are tiny, so adjacent exchange is plenty.
     auto orderIface = [&](int gi, int gj, uint32_t* ids, int cnt, bool write) {
         if (cnt < 2) return;
         static float inY[kRgGPinMax][kRGAnchor], outY[kRgGPinMax][kRGAnchor];
@@ -1445,13 +1377,10 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         for (int i = 0; i < cnt; ++i) tmp[i] = ids[perm[i]];
         for (int i = 0; i < cnt; ++i) ids[i] = tmp[i];
     };
-    // de-overlap a border's pins AND keep the run on that border in one step. members in one row want the
-    // same y, which would stack every pin on a point, so enforce a min gap then recentre on the desired mean.
-    // the two-sided barycentre can land past the group's span, so the run is SHIFTED into [lo, hi] rather
-    // than clamped, which would restack exactly the spacing the gap pass just bought. it compresses only when
-    // the band cannot hold cnt pins at `gap`, and then evenly.
-    // NOTE: the gap is enforced in ARRAY order, which orderIface already chose to minimise crossings.
-    // re-sorting by y would silently undo that whenever the two disagree, the very case orderIface exists for.
+
+    // de-overlap a border's pins and keep the run on that border in one step: enforce a min gap, then
+    // recentre on the desired mean. the run is SHIFTED into [lo, hi] rather than clamped, which would
+    // restack the spacing just bought, and compresses only when the band cannot hold cnt pins at gap.
     auto fitPins = [&](ImVec2* pins, int cnt, float gap, float lo, float hi) {
         if (cnt <= 0 || hi <= lo) return;
         if (cnt == 1) { pins[0].y = pins[0].y < lo ? lo : (pins[0].y > hi ? hi : pins[0].y); return; }
@@ -1492,8 +1421,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         orderIface(gi, gj, g.outId, g.nOut, true);
 
         if (!g.collapsed) {
-            // a hull border around the member boxes. the cluster-contiguity ordering keeps them a tight
-            // block, so the bbox is theirs alone. pad past any nested subgroup border to enclose it.
+            // a hull border around the member boxes, a tight block thanks to the cluster-contiguity
+            // ordering. pad past any nested subgroup border to enclose it.
             ImU32 gcol = group_color(pre);
             ImVec2 a(x0 - kRegionPad, y0 - kRegionPad - kHeaderH), b(x1 + kRegionPad, y1 + kRegionPad);
             dl->AddRectFilled(a, b, rg_with_alpha(gcol, 22), 6.0f);
@@ -1501,39 +1430,35 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
             char lbl[64]; std::snprintf(lbl, sizeof lbl, "[-] %.*s  x%d", (int)sv_length(pre), pre.data, gj - gi);
             dl->AddText(ImVec2(a.x + 6, a.y + 3), gcol, lbl);
             g.bb0 = a; g.bb1 = b; g.h0 = a; g.h1 = ImVec2(b.x, a.y + kHeaderH);
-            // pins on the hull edges, each aligned to the members it serves, so boundary edges run straight
-            // across instead of arcing up to a top-aligned row
+            // pins on the hull edges aligned to the members they serve, so boundary edges run straight across
             const float pinLo = a.y + kHeaderH + kPinRowH * 0.5f, pinHi = b.y - kPinRowH * 0.5f;
-            for (int s = 0; s < g.nIn; ++s)  g.inC[s]  = ImVec2(a.x, ifaceY(gi, gj, g.inId[s],  false, a.y + kHeaderH + s * kPinRowH + kPinRowH * 0.5f));
-            for (int s = 0; s < g.nOut; ++s) g.outC[s] = ImVec2(b.x, ifaceY(gi, gj, g.outId[s], true,  a.y + kHeaderH + s * kPinRowH + kPinRowH * 0.5f));
+            for (int si = 0; si < g.nIn; ++si)  g.inC[si]  = ImVec2(a.x, ifaceY(gi, gj, g.inId[si],  false, a.y + kHeaderH + si * kPinRowH + kPinRowH * 0.5f));
+            for (int si = 0; si < g.nOut; ++si) g.outC[si] = ImVec2(b.x, ifaceY(gi, gj, g.outId[si], true,  a.y + kHeaderH + si * kPinRowH + kPinRowH * 0.5f));
             fitPins(g.inC, g.nIn, kPinRowH, pinLo, pinHi); fitPins(g.outC, g.nOut, kPinRowH, pinLo, pinHi);
         }
         else {
             int rows = g.nIn > g.nOut ? g.nIn : g.nOut;
             float needH = kHeaderH + (rows ? rows * kPinRowH : kMinBodyH) + kFooterH;
-            // collapse over the FIRST member's slot, already an overlap-free position, not the member bbox,
-            // which for a multi-column group would cover the nodes laid out between its members.
-            // NOTE(Huerbe): no relayout, so a group with more pins than the anchor's rows grows down and can
-            // touch a neighbour. promote collapsed groups to single layout nodes if that ever bites.
+            // collapse over the FIRST member's slot, already overlap-free, not the member bbox, which would
+            // cover the nodes laid out between members. NOTE(Huerbe): no relayout, so a group with more pins
+            // than the anchor's rows can grow into a neighbour.
             ImVec2 a(origin.x + rgn[gi].pos.x, origin.y + rgn[gi].pos.y);
             ImVec2 b(a.x + kBoxW, a.y + needH);   // == effH[gi], the slot reserved before layout
             g.bb0 = a; g.bb1 = b; g.h0 = a; g.h1 = ImVec2(b.x, a.y + kHeaderH);
-            for (int s = 0; s < g.nIn; ++s)  g.inC[s]  = ImVec2(a.x, a.y + kHeaderH + s * kPinRowH + kPinRowH * 0.5f);
-            for (int s = 0; s < g.nOut; ++s) g.outC[s] = ImVec2(b.x, a.y + kHeaderH + s * kPinRowH + kPinRowH * 0.5f);
+            for (int si = 0; si < g.nIn; ++si)  g.inC[si]  = ImVec2(a.x, a.y + kHeaderH + si * kPinRowH + kPinRowH * 0.5f);
+            for (int si = 0; si < g.nOut; ++si) g.outC[si] = ImVec2(b.x, a.y + kHeaderH + si * kPinRowH + kPinRowH * 0.5f);
         }
 
         int idxG = (int)groups.size(); groups.push_back(g);
         for (int k = gi; k < gj; ++k) groupOf[k] = idxG;
-        // map this top-level group to its gtree node too, so collOwner-keyed lookups find its compact pin.
-        // without it, collapsing a top-level group sends member edges to their own undrawn pins.
+        // map the top-level group to its gtree node too, or collOwner lookups send member edges to undrawn pins
         for (int gn = 1; gn < (int)gtree.size(); ++gn) if (gtree[gn].depth == 1 && gtree[gn].gi == gi && gtree[gn].gj == gj) { nodeGView[gn] = idxG; break; }
         gi = gj;
     }
 
-    // every gtree node below the top level becomes a GView too, so the same draw / click / pin passes treat
-    // it like a top-level group. nests to any depth.
-    // pass 1: rects deepest-first, so a parent's border encloses its child borders with a gap and members
-    // never sit flush. pass 2 builds the GViews parent-first.
+    // every gtree node below the top level becomes a GView too, so the draw / click / pin passes treat it
+    // like a top-level group, at any depth. pass 1 rects deepest-first so a parent's border encloses its
+    // children with a gap, pass 2 builds the GViews parent-first.
     static std::vector<ImVec2> subA, subB; subA.assign(gtree.size(), ImVec2(0, 0)); subB.assign(gtree.size(), ImVec2(0, 0));
     const float kSubPad = 11.0f * zoom;   // gap from a subgroup border to its members / nested child borders
     for (int gni = (int)gtree.size() - 1; gni >= 1; --gni) {
@@ -1582,8 +1507,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
             dl->AddText(ImVec2(a.x + 4, a.y + 1), sc, slbl);
         }
         // expanded aligns pins to the members they serve so edges run across, collapsed top-aligns them
-        for (int s = 0; s < g.nIn; ++s)  g.inC[s]  = ImVec2(a.x, g.collapsed ? a.y + kHeaderH + s * kPinRowH + kPinRowH * 0.5f : ifaceY(g2.gi, g2.gj, g.inId[s],  false, a.y + kHeaderH + s * kPinRowH + kPinRowH * 0.5f));
-        for (int s = 0; s < g.nOut; ++s) g.outC[s] = ImVec2(b.x, g.collapsed ? a.y + kHeaderH + s * kPinRowH + kPinRowH * 0.5f : ifaceY(g2.gi, g2.gj, g.outId[s], true,  a.y + kHeaderH + s * kPinRowH + kPinRowH * 0.5f));
+        for (int si = 0; si < g.nIn; ++si)  g.inC[si]  = ImVec2(a.x, g.collapsed ? a.y + kHeaderH + si * kPinRowH + kPinRowH * 0.5f : ifaceY(g2.gi, g2.gj, g.inId[si],  false, a.y + kHeaderH + si * kPinRowH + kPinRowH * 0.5f));
+        for (int si = 0; si < g.nOut; ++si) g.outC[si] = ImVec2(b.x, g.collapsed ? a.y + kHeaderH + si * kPinRowH + kPinRowH * 0.5f : ifaceY(g2.gi, g2.gj, g.outId[si], true,  a.y + kHeaderH + si * kPinRowH + kPinRowH * 0.5f));
         if (!g.collapsed) {
             const float pinLo = a.y + kHeaderH + kPinRowH * 0.5f, pinHi = b.y - kPinRowH * 0.5f;
             fitPins(g.inC, g.nIn, kPinRowH, pinLo, pinHi); fitPins(g.outC, g.nOut, kPinRowH, pinLo, pinHi);
@@ -1613,9 +1538,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         }
         return true;
     };
-    // screen-space polyline of an edge, shared by hit-test + draw. the lane chain only exists to stop an
-    // edge hiding behind a box, and a relaxed lane is what makes an edge detour, so take the lanes only when
-    // the direct run actually hits something.
+    // screen-space polyline of an edge, shared by hit-test + draw. lanes exist only to stop an edge hiding
+    // behind a box, so take them only when the direct run actually hits something.
     auto edgePoints = [&](const REdge& e, ImVec2* pts) -> int {
         const ImVec2 sp = outPin(e.src, e.sOut), dp = inPin(e.dst, e.dIn);
         if (e.chainN == 0 || directClear(sp, dp, e.src, e.dst)) { pts[0] = sp; pts[1] = dp; return 2; }
@@ -1651,29 +1575,28 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
             }
         }
     }
-    // ---- group border pins, hovered like a member's pin so cone + tooltip + lock work. map the border pin
-    // to a representative member, then reuse the hovered-pin path below. the per-pass test above already
-    // catches expanded member pins, this adds the ones on the region edge.
+    // ---- group border pins, hovered like a member's pin so cone + tooltip + lock work. maps the border pin
+    // to a representative member. the per-pass test above already caught the member pins themselves.
     if (hovB < 0 && canvasHovered && !canvasActive)
         for (GView& g : groups) {
             if (hovB >= 0) continue;
             // both collapsed and expanded groups carry selectable interface pins
-            for (int s = 0; s < g.nIn && hovB < 0; ++s) {
-                ImVec2 c = g.inC[s];
+            for (int si = 0; si < g.nIn && hovB < 0; ++si) {
+                ImVec2 c = g.inC[si];
                 if (!ImGui::IsMouseHoveringRect(ImVec2(c.x - kPinHit, c.y - kPinHit), ImVec2(c.x + kPinHit, c.y + kPinHit))) continue;
                 for (int k = g.gi; k < g.gj && hovB < 0; ++k) { PassNode* mp = rgn[k].pass;
                     for (uint32_t ai = 0; ai < mp->accessCount; ++ai)
-                        if (mp->accesses[ai].handle.id == g.inId[s] && rg_access_reads(mp->accesses[ai]))
-                            { hovB = k; hovWrite = false; hovId = g.inId[s]; hovSlot = rg_in_slot(mp, g.inId[s]); hovType = mp->accesses[ai].type; hovMip = mp->accesses[ai].baseMip; hovLayer = mp->accesses[ai].baseLayer; break; }
+                        if (mp->accesses[ai].handle.id == g.inId[si] && rg_access_reads(mp->accesses[ai]))
+                            { hovB = k; hovWrite = false; hovId = g.inId[si]; hovSlot = rg_in_slot(mp, g.inId[si]); hovType = mp->accesses[ai].type; hovMip = mp->accesses[ai].baseMip; hovLayer = mp->accesses[ai].baseLayer; break; }
                 }
             }
-            for (int s = 0; s < g.nOut && hovB < 0; ++s) {
-                ImVec2 c = g.outC[s];
+            for (int si = 0; si < g.nOut && hovB < 0; ++si) {
+                ImVec2 c = g.outC[si];
                 if (!ImGui::IsMouseHoveringRect(ImVec2(c.x - kPinHit, c.y - kPinHit), ImVec2(c.x + kPinHit, c.y + kPinHit))) continue;
                 for (int k = g.gi; k < g.gj && hovB < 0; ++k) { PassNode* mp = rgn[k].pass;
                     for (uint32_t ai = 0; ai < mp->accessCount; ++ai)
-                        if (mp->accesses[ai].handle.id == g.outId[s] && access_is_write(mp->accesses[ai].type))
-                            { hovB = k; hovWrite = true; hovId = g.outId[s]; hovSlot = rg_out_slot(mp, g.outId[s]); hovType = mp->accesses[ai].type; hovMip = mp->accesses[ai].baseMip; hovLayer = mp->accesses[ai].baseLayer; break; }
+                        if (mp->accesses[ai].handle.id == g.outId[si] && access_is_write(mp->accesses[ai].type))
+                            { hovB = k; hovWrite = true; hovId = g.outId[si]; hovSlot = rg_out_slot(mp, g.outId[si]); hovType = mp->accesses[ai].type; hovMip = mp->accesses[ai].baseMip; hovLayer = mp->accesses[ai].baseLayer; break; }
                 }
             }
         }
@@ -1724,9 +1647,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         if (collOwner[k] >= 0) { int gv = nodeGView[collOwner[k]]; if (gv >= 0) { int sl = gpin_slot(groups[gv].inId, groups[gv].nIn, id); if (sl >= 0) return groups[gv].inC[sl]; } }
         int ds = rg_in_slot(rgn[k].pass, id); return inPin(k, ds >= 0 ? ds : 0);
     };
-    // terminals + the lane chain + any crossed group interface pins, ordered left-to-right by x, which also
-    // nests correctly. shared by hit-test and draw so a rerouted edge is hoverable where it is drawn.
-    // caller's wp must hold >= 3*kRgDagMax points.
+    // terminals + lane chain + crossed group pins, ordered left-to-right by x, which also nests correctly.
+    // shared by hit-test and draw. caller's wp must hold >= 3*kRgDagMax points.
     auto buildEdgePath = [&](const REdge& e, ImVec2* wp) -> int {
         ImVec2 sp = collOwner[e.src] >= 0 ? memberOut(e.src, e.id) : outPin(e.src, e.sOut);
         ImVec2 dp = collOwner[e.dst] >= 0 ? memberIn(e.dst, e.id)  : inPin(e.dst, e.dIn);
@@ -1738,9 +1660,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
             if (hD && !hS && gpin_slot(g.inId,  g.nIn,  e.id) >= 0 && nen < kRgGPinMax) entryG[nen++] = gx;
         }
         if (nex == 0 && nen == 0 && collOwner[e.src] < 0 && collOwner[e.dst] < 0) return edgePoints(e, wp);   // plain edge
-        // the border pins are required waypoints, the lane chain is not, it only dodges boxes. taking the
-        // lanes unconditionally makes an already-clear run climb to the lane's y and read as a detour, so
-        // build the lane-free path first and keep it when every span is clear.
+        // border pins are required waypoints, lanes are not, they only dodge boxes. build the lane-free
+        // path first and keep it when every span is clear.
         auto assemble = [&](bool withLanes) -> int {
             int nw2 = 0; wp[nw2++] = sp;
             if (withLanes)
@@ -1781,8 +1702,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         }
     }
 
-    // ---- cones, seeded from the hovered pin, else the locked one. upstream is the producers needed to
-    // make the resource, and an output pin also marks downstream.
+    // ---- cones, seeded from the hovered pin, else the locked one. an output pin also marks downstream.
     int coneB = hovB >= 0 ? hovB : lockB;
     bool coneWrite = hovB >= 0 ? hovWrite : lockWrite;
     uint32_t coneId = hovB >= 0 ? hovId : lockId;
@@ -1800,8 +1720,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     auto isDim = [&](int i) { return fout(i) || (coneActive && !inCone[i] && !downCone[i] && !(coneWrite && i == coneB)); };
     auto inUp  = [&](int i) { return coneActive && inCone[i] && !fout(i); };
     auto inDn  = [&](int i) { return coneActive && (downCone[i] || (coneWrite && i == coneB)) && !fout(i); };
-    // by cone state: gold upstream, teal down, grey normal, faint dim. shared by the top-level and interior
-    // edge loops, so an edge inside a group reads the same as one outside.
+    // by cone state: gold upstream, teal down, grey normal, faint dim. shared by every edge loop.
     auto edgeCol = [&](int s, int d, float* th) {
         bool eup = inUp(s) && inUp(d), edn = inDn(s) && inDn(d);
         if (eup)                          { if (th) *th = 2.5f; return IM_COL32(245, 222, 120, 235); }
@@ -1822,8 +1741,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         for (int t = 0; t + 1 < nw; ++t) { ImVec2 a2 = wp[t], b2 = wp[t + 1]; float dx = rg_edge_tangent(a2, b2); dl->AddBezierCubic(a2, ImVec2(a2.x + dx, a2.y), ImVec2(b2.x - dx, b2.y), b2, col, th); }
     }
 
-    // no interior group edges or subgroup stubs: an expanded group's members are first-class boxes, so their
-    // intra-group flow is ordinary edge[] entries drawn above.
+    // no interior group edges: an expanded group's members are first-class boxes, drawn from edge[] above.
 
     // ---- boxes
     for (int i = 0; i < n; ++i) {
@@ -1915,65 +1833,62 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         dl->PushClipRect(a, ImVec2(b.x - 4, b.y), true);
         dl->AddText(ImVec2(a.x + 7, a.y + 4), IM_COL32(255, 255, 255, 255), head);
         dl->PopClipRect();
-        for (int s = 0; s < g.nIn; ++s) {
-            ResourceNode* r = find_node(rg, { g.inId[s] });
+        for (int si = 0; si < g.nIn; ++si) {
+            ResourceNode* r = find_node(rg, { g.inId[si] });
             WGPUStringView rn = r ? r->id.name : WGPUStringView{};
             bool buf = r && r->kind == ResourceKind::Buffer;
-            bool prod = false; for (int j = 0; j < n; ++j) if (rg_pass_writes(box[j].p, g.inId[s])) prod = true;
-            rg_draw_pin(dl, g.inC[s], kPinR, kRGRead, prod, buf);   // hollow = external input (no in-graph producer)
-            if (hovB >= g.gi && hovB < g.gj && !hovWrite && hovId == g.inId[s]) dl->AddCircle(g.inC[s], kPinR + 3.0f, IM_COL32(255, 255, 255, 255), 16, 2.0f);
-            if (lockB >= g.gi && lockB < g.gj && !lockWrite && lockId == g.inId[s]) dl->AddCircle(g.inC[s], kPinR + 3.0f, IM_COL32(90, 200, 230, 255), 16, 2.0f);
+            bool prod = false; for (int j = 0; j < n; ++j) if (rg_pass_writes(box[j].p, g.inId[si])) prod = true;
+            rg_draw_pin(dl, g.inC[si], kPinR, kRGRead, prod, buf);   // hollow = external input (no in-graph producer)
+            if (hovB >= g.gi && hovB < g.gj && !hovWrite && hovId == g.inId[si]) dl->AddCircle(g.inC[si], kPinR + 3.0f, IM_COL32(255, 255, 255, 255), 16, 2.0f);
+            if (lockB >= g.gi && lockB < g.gj && !lockWrite && lockId == g.inId[si]) dl->AddCircle(g.inC[si], kPinR + 3.0f, IM_COL32(90, 200, 230, 255), 16, 2.0f);
             char lbl[48]; std::snprintf(lbl, sizeof lbl, "%.*s", (int)rn.length, rn.data ? rn.data : "?");
             ImVec2 ls = ImGui::CalcTextSize(lbl);
-            dl->PushClipRect(ImVec2(g.inC[s].x + kPinR + 3, g.inC[s].y - kPinRowH * 0.5f), ImVec2(mid, g.inC[s].y + kPinRowH * 0.5f), true);
-            dl->AddText(ImVec2(g.inC[s].x + kPinR + 3, g.inC[s].y - ls.y * 0.5f), IM_COL32(230, 230, 230, 255), lbl);
+            dl->PushClipRect(ImVec2(g.inC[si].x + kPinR + 3, g.inC[si].y - kPinRowH * 0.5f), ImVec2(mid, g.inC[si].y + kPinRowH * 0.5f), true);
+            dl->AddText(ImVec2(g.inC[si].x + kPinR + 3, g.inC[si].y - ls.y * 0.5f), IM_COL32(230, 230, 230, 255), lbl);
             dl->PopClipRect();
         }
-        for (int s = 0; s < g.nOut; ++s) {
-            ResourceNode* r = find_node(rg, { g.outId[s] });
+        for (int si = 0; si < g.nOut; ++si) {
+            ResourceNode* r = find_node(rg, { g.outId[si] });
             WGPUStringView rn = r ? r->id.name : WGPUStringView{};
             bool buf = r && r->kind == ResourceKind::Buffer;
-            rg_draw_pin(dl, g.outC[s], kPinR, kRGWrite, true, buf);
-            if (hovB >= g.gi && hovB < g.gj && hovWrite && hovId == g.outId[s]) dl->AddCircle(g.outC[s], kPinR + 3.0f, IM_COL32(255, 255, 255, 255), 16, 2.0f);
-            if (lockB >= g.gi && lockB < g.gj && lockWrite && lockId == g.outId[s]) dl->AddCircle(g.outC[s], kPinR + 3.0f, IM_COL32(90, 200, 230, 255), 16, 2.0f);
+            rg_draw_pin(dl, g.outC[si], kPinR, kRGWrite, true, buf);
+            if (hovB >= g.gi && hovB < g.gj && hovWrite && hovId == g.outId[si]) dl->AddCircle(g.outC[si], kPinR + 3.0f, IM_COL32(255, 255, 255, 255), 16, 2.0f);
+            if (lockB >= g.gi && lockB < g.gj && lockWrite && lockId == g.outId[si]) dl->AddCircle(g.outC[si], kPinR + 3.0f, IM_COL32(90, 200, 230, 255), 16, 2.0f);
             char lbl[48]; std::snprintf(lbl, sizeof lbl, "%.*s", (int)rn.length, rn.data ? rn.data : "?");
             ImVec2 ls = ImGui::CalcTextSize(lbl);
-            dl->PushClipRect(ImVec2(mid, g.outC[s].y - kPinRowH * 0.5f), ImVec2(g.outC[s].x - kPinR - 3, g.outC[s].y + kPinRowH * 0.5f), true);
-            dl->AddText(ImVec2(g.outC[s].x - kPinR - 3 - ls.x, g.outC[s].y - ls.y * 0.5f), IM_COL32(230, 230, 230, 255), lbl);
+            dl->PushClipRect(ImVec2(mid, g.outC[si].y - kPinRowH * 0.5f), ImVec2(g.outC[si].x - kPinR - 3, g.outC[si].y + kPinRowH * 0.5f), true);
+            dl->AddText(ImVec2(g.outC[si].x - kPinR - 3 - ls.x, g.outC[si].y - ls.y * 0.5f), IM_COL32(230, 230, 230, 255), lbl);
             dl->PopClipRect();
         }
     }
 
-    // the dots on the hull edges that every boundary edge threads through. a ring lights when a member pin
-    // for the same resource is hovered or locked.
+    // the dots on the hull edges every boundary edge threads through, ringed when a member pin is hovered
     for (GView& g : groups) {
         if (g.collapsed) continue;
-        for (int s = 0; s < g.nIn; ++s) {
-            ResourceNode* r = find_node(rg, { g.inId[s] }); bool buf = r && r->kind == ResourceKind::Buffer;
-            bool prod = false; for (int j = 0; j < n; ++j) if (rg_pass_writes(box[j].p, g.inId[s])) { prod = true; break; }
-            rg_draw_pin(dl, g.inC[s], kPinR, kRGRead, prod, buf);
-            if (hovB  >= g.gi && hovB  < g.gj && !hovWrite  && hovId  == g.inId[s]) dl->AddCircle(g.inC[s], kPinR + 3.0f, IM_COL32(255, 255, 255, 255), 16, 2.0f);
-            if (lockB >= g.gi && lockB < g.gj && !lockWrite && lockId == g.inId[s]) dl->AddCircle(g.inC[s], kPinR + 3.0f, IM_COL32(90, 200, 230, 255), 16, 2.0f);
+        for (int si = 0; si < g.nIn; ++si) {
+            ResourceNode* r = find_node(rg, { g.inId[si] }); bool buf = r && r->kind == ResourceKind::Buffer;
+            bool prod = false; for (int j = 0; j < n; ++j) if (rg_pass_writes(box[j].p, g.inId[si])) { prod = true; break; }
+            rg_draw_pin(dl, g.inC[si], kPinR, kRGRead, prod, buf);
+            if (hovB  >= g.gi && hovB  < g.gj && !hovWrite  && hovId  == g.inId[si]) dl->AddCircle(g.inC[si], kPinR + 3.0f, IM_COL32(255, 255, 255, 255), 16, 2.0f);
+            if (lockB >= g.gi && lockB < g.gj && !lockWrite && lockId == g.inId[si]) dl->AddCircle(g.inC[si], kPinR + 3.0f, IM_COL32(90, 200, 230, 255), 16, 2.0f);
         }
-        for (int s = 0; s < g.nOut; ++s) {
-            ResourceNode* r = find_node(rg, { g.outId[s] }); bool buf = r && r->kind == ResourceKind::Buffer;
-            rg_draw_pin(dl, g.outC[s], kPinR, kRGWrite, true, buf);
-            if (hovB  >= g.gi && hovB  < g.gj && hovWrite  && hovId  == g.outId[s]) dl->AddCircle(g.outC[s], kPinR + 3.0f, IM_COL32(255, 255, 255, 255), 16, 2.0f);
-            if (lockB >= g.gi && lockB < g.gj && lockWrite && lockId == g.outId[s]) dl->AddCircle(g.outC[s], kPinR + 3.0f, IM_COL32(90, 200, 230, 255), 16, 2.0f);
+        for (int si = 0; si < g.nOut; ++si) {
+            ResourceNode* r = find_node(rg, { g.outId[si] }); bool buf = r && r->kind == ResourceKind::Buffer;
+            rg_draw_pin(dl, g.outC[si], kPinR, kRGWrite, true, buf);
+            if (hovB  >= g.gi && hovB  < g.gj && hovWrite  && hovId  == g.outId[si]) dl->AddCircle(g.outC[si], kPinR + 3.0f, IM_COL32(255, 255, 255, 255), 16, 2.0f);
+            if (lockB >= g.gi && lockB < g.gj && lockWrite && lockId == g.outId[si]) dl->AddCircle(g.outC[si], kPinR + 3.0f, IM_COL32(90, 200, 230, 255), 16, 2.0f);
         }
     }
 
-    // ---- virtual endpoint nodes + dashed links, from the IR mirror. a source feeds a pass input pin from
-    // the left, a sink is fed by an output pin, an imported buffer fans one source to all readers.
-    // this resolves the pin position on a collapsed group, or the box edge at `y` when the resource crosses
-    // the boundary without a pin, e.g. a history write consumed only next frame.
+    // ---- virtual endpoint nodes + dashed links, from the IR mirror. a source feeds an input pin, a sink is
+    // fed by an output pin, an imported buffer fans one source to all readers.
+    // grpPin: the collapsed group's pin, else the box edge at y when the resource crosses without one.
     auto grpPin = [&](GView& g, uint32_t id, bool write, float y) -> ImVec2 {
         int sl = gpin_slot(write ? g.outId : g.inId, write ? g.nOut : g.nIn, id);
         if (sl >= 0) return write ? g.outC[sl] : g.inC[sl];
         return ImVec2(write ? g.bb1.x : g.bb0.x, y);
     };
-    // the border pins between member pe and the outside, so a virtual link threads through the same pins the
-    // data edges do. fills outermost-first, returns the count.
+    // border pins between member pe and the outside, outermost-first, so a virtual link threads like a data edge
     auto memberPins = [&](int pe, uint32_t id, bool write, ImVec2* out) -> int {
         int idx[kRgGPinMax], ni = 0;
         for (int gx = 0; gx < (int)groups.size(); ++gx) {
@@ -1996,14 +1911,13 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         RgNode& vn = rgn[vi];
         ImU32 tint = isDim(pe) ? rg_with_alpha(vn.tint, 40) : (faint ? rg_with_alpha(vn.tint, 90) : vn.tint);   // cone-dim with anchor
         float vcy = origin.y + vn.pos.y + vn.h * 0.5f;
-        // thread the dashed link through the same border pins as a data edge. collapsed groups terminate at
-        // the compact pin.
+        // thread the dashed link through the same border pins as a data edge, collapsed at the compact pin
         ImVec2 wp[2 + kRgGPinMax]; int nw = 0; ImVec2 gp[kRgGPinMax];
         if (srcV) {   // read: node right edge -> reader input pin
             wp[nw++] = ImVec2(origin.x + vn.pos.x + vn.w, vcy);
             if (groupOf[pe] >= 0 && groups[groupOf[pe]].collapsed) {   // collapsed top-level group: its compact in-pin
                 GView& g = groups[groupOf[pe]];
-                if (faint) { int s = gpin_slot(g.inId, g.nIn, ge.resId); if (s < 0 || g.inDrawn[s]) continue; g.inDrawn[s] = true; wp[nw++] = g.inC[s]; }
+                if (faint) { int si = gpin_slot(g.inId, g.nIn, ge.resId); if (si < 0 || g.inDrawn[si]) continue; g.inDrawn[si] = true; wp[nw++] = g.inC[si]; }
                 else wp[nw++] = grpPin(g, ge.resId, false, wp[0].y);
             }
             else if (collOwner[pe] >= 0) wp[nw++] = memberIn(pe, ge.resId);   // folded into a collapsed subgroup
@@ -2105,8 +2019,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
 
     ImGui::SetWindowFontScale(1.0f);   // overlays (details panel, zoom indicator) stay readable at any zoom
 
-    // ---- details panel for the locked pin + its pass. a top-right overlay on the canvas draw list, no
-    // nested child. a pin click fills it, an empty-canvas click clears it.
+    // ---- details panel for the locked pin, a top-right overlay on the canvas draw list, no nested child
     if (lockB >= 0 && lockB < n) {
         PassNode* p = rgn[lockB].pass;
         ResourceNode* r = find_node(rg, { lockId });
@@ -2200,8 +2113,7 @@ static int rg_pass_access(PassNode* p, uint32_t id)
     return a;
 }
 
-// colour per alias slot, so transients packed onto one slot read as one hue. cycles a small palette,
-// keeping adjacent slot indices distinguishable.
+// colour per alias slot, so transients sharing a slot read as one hue. small cycling palette.
 static ImU32 rg_slot_color(uint32_t slot)
 {
     static const ImU32 pal[] = {
@@ -2228,14 +2140,11 @@ static const char* rg_format_short(WGPUTextureFormat f)
 }
 
 // lifetime grid over the graph's own per-frame GPU textures, passes in execution order across the top.
-// each row is ONE dedicated allocation, never a bare logical handle:
-//   * aliasing ON  -> a physical slot, its bar showing every occupant's writes (warm) and reads (cool),
-//     with empty gaps where the texture is free between occupants
-//   * aliasing OFF -> each realized transient is its own texture, one row, named for the resource
-// toggling 'alias transients' collapses N transient rows into M shared textures, and that drop plus the
-// gaps is the aliasing made visible. imported, history/persistent and dead resources have no dedicated
-// per-frame allocation and are NOT shown. firstUse/lastUse come from compile() phase 3, slots from 4.
-static void rg_draw_lifetimes(RenderGraph* rg, RenderGraphStorage& s)
+// each row is ONE dedicated allocation: aliasing ON gives a physical slot per row, with gaps where the
+// texture is free between occupants, aliasing OFF one row per realized transient. the row-count drop
+// between the two is the aliasing made visible. imported, history/persistent and dead resources are NOT
+// shown. firstUse/lastUse come from compile() phase 3, slots from 4.
+static void rg_draw_lifetimes(RenderGraphStorage& s)
 {
     constexpr int   kMax = kRgDagMax;   // one cap for every tab, so the same graph never shows a different pass set
     constexpr float kLabelW = 150.0f, kColW = 88.0f, kRowH = 24.0f, kHeaderH = 24.0f;
@@ -2246,8 +2155,7 @@ static void rg_draw_lifetimes(RenderGraph* rg, RenderGraphStorage& s)
     ImGui::SameLine();
     ImGui::TextDisabled("(rows = the graph's dedicated per-frame GPU objects: textures + buffers)");
 
-    // rows below are physical slots or per-transient objects, either way only dedicated graph-owned
-    // allocations. the row count + saved MB are the win.
+    // rows are physical slots or per-transient objects, either way only dedicated graph-owned allocations
     auto phBytes = [](const PhysicalResource& ph) -> uint64_t {
         return ph.kind == ResourceKind::Buffer ? ph.bufferSize : texture_bytes(ph.sig.size, ph.sig.format);
     };
@@ -2272,9 +2180,8 @@ static void rg_draw_lifetimes(RenderGraph* rg, RenderGraphStorage& s)
     for (PassNode* p = s.m_passes; p && nPass < kMax; p = p->next) passAt[nPass++] = p;
     int passTotal = 0; for (PassNode* p = s.m_passes; p; p = p->next) ++passTotal;   // for the cap note below
 
-    // every row is one physical texture, whether aliasing is on or off. a slot hosts >=1 disjoint-lifetime
-    // transient, a non-aliased transient is its own single-occupant texture. imported/history/persistent and
-    // dead transients are excluded, so only real GPU textures appear.
+    // every row is one physical texture either way: a slot hosts >=1 disjoint-lifetime transient, a
+    // non-aliased transient is its own. imported/history/persistent and dead transients are excluded.
     struct Row { ResourceNode* r; int slot; uint32_t first, last; };
     Row row[kMax];
     int nRow = 0;
@@ -2306,8 +2213,7 @@ static void rg_draw_lifetimes(RenderGraph* rg, RenderGraphStorage& s)
             if (o->aliasSlot == (uint32_t)rw.slot) a |= rg_pass_access(passAt[c], o->handle.id);
         return a;
     };
-    // a solo row spans [first,last], a slot row is live only while some occupant is, so the gaps between
-    // occupants render empty: the texture freed and reused, on the timeline
+    // a solo row spans [first,last], a slot row only while an occupant is, so reuse gaps render empty
     auto rowLive = [&](const Row& rw, uint32_t c) -> bool {
         if (rw.slot < 0) return rw.first <= c && c <= rw.last;
         for (ResourceNode* o = s.m_resouces; o; o = o->next)
@@ -2323,8 +2229,7 @@ static void rg_draw_lifetimes(RenderGraph* rg, RenderGraphStorage& s)
         return n;
     };
 
-    // selection persists across frames, but the graph is rebuilt each frame and handle ids are not stable,
-    // so key a slot row by its index and a solo row by its resource NAME
+    // handle ids are not stable across the per-frame rebuild, so key a slot row by index, a solo row by NAME
     static int  selSlot = -2;        // -2 = nothing; -1 = a solo row (selName); >= 0 = slot index
     static char selName[96] = {};
     auto rowSelected = [&](const Row& rw) -> bool {
@@ -2374,8 +2279,7 @@ static void rg_draw_lifetimes(RenderGraph* rg, RenderGraphStorage& s)
         ResourceNode* sole = nullptr;
         const int   nocc   = rowOccupants(row[i], sole);
         const bool  shared = nocc > 1;
-        // shared textures get "image N" + a slot colour so they stand out, a single-occupant one keeps the
-        // resource name. format and size are in the details panel.
+        // shared textures get "image N" + a slot colour, a single-occupant one keeps the resource name
         const ImU32 col  = shared ? rg_slot_color((uint32_t)i) : IM_COL32(210, 210, 210, 255);
         const bool  seld = rowSelected(row[i]);
         if (seld)       dl->AddRectFilled(ImVec2(origin.x, y), ImVec2(gridR, y + kRowH), IM_COL32(255, 255, 255, 30));
@@ -2423,8 +2327,7 @@ static void rg_draw_lifetimes(RenderGraph* rg, RenderGraphStorage& s)
                 dl->AddRectFilled(ImVec2(sx0, ty), ImVec2(sx1, by), acc == 2 ? kRGWrite : kRGRead, 0.0f);
         }
 
-        // outline each contiguous occupancy run, so the gaps stay open and each occupant reads as its own
-        // block
+        // outline each contiguous occupancy run, so the gaps stay open
         const ImU32 edge = (seld || hov) ? IM_COL32(255, 255, 255, 255) : col;
         const float wth  = (seld || hov) ? 2.0f : 1.0f;
         for (uint32_t c = row[i].first; c <= row[i].last; ) {
@@ -2457,12 +2360,17 @@ static void rg_draw_lifetimes(RenderGraph* rg, RenderGraphStorage& s)
                 (int)psole->id.name.length, psole->id.name.data ? psole->id.name.data : "");
             ImGui::SameLine();
 
-            char ub[160]; ub[0] = '\0';
+            char ub[160]; ub[0] = '\0'; size_t ubn = 0;
+            // bounded append, snprintf reports the untruncated length so clamp before advancing
+            auto addName = [&](const char* nm) {
+                const int w = std::snprintf(ub + ubn, sizeof ub - ubn, "%s%s", ubn ? " | " : "", nm);
+                if (w > 0) ubn = ubn + (size_t)w < sizeof ub ? ubn + (size_t)w : sizeof ub - 1;
+            };
             if (isBuf) {
                 uint64_t        bytes = rw.slot >= 0 ? s.m_slots[rw.slot].bufferSize : rw.r->bufferSize;
                 WGPUBufferUsage u     = rw.slot >= 0 ? s.m_slots[rw.slot].bufUsage   : rw.r->bufUsage;
                 ImGui::Text("- buffer  -  %.1f KB", bytes / 1024.0);
-                auto addb = [&](WGPUBufferUsage bit, const char* nm) { if (u & bit) { if (ub[0]) std::strcat(ub, " | "); std::strcat(ub, nm); } };
+                auto addb = [&](WGPUBufferUsage bit, const char* nm) { if (u & bit) addName(nm); };
                 addb(WGPUBufferUsage_Storage,  "Storage");   addb(WGPUBufferUsage_Uniform,  "Uniform");
                 addb(WGPUBufferUsage_Vertex,   "Vertex");    addb(WGPUBufferUsage_Index,    "Index");
                 addb(WGPUBufferUsage_Indirect, "Indirect");  addb(WGPUBufferUsage_CopySrc,  "CopySrc");
@@ -2472,7 +2380,7 @@ static void rg_draw_lifetimes(RenderGraph* rg, RenderGraphStorage& s)
                 WGPUTextureFormat fmt = rowFmt(rw);
                 WGPUTextureUsage  u   = rowUsage(rw);
                 ImGui::Text("- %s  %u x %u  -  %.1f KB", rg_format_short(fmt), sz.width, sz.height, texture_bytes(sz, fmt) / 1024.0);
-                auto addu = [&](WGPUTextureUsage bit, const char* nm) { if (u & bit) { if (ub[0]) std::strcat(ub, " | "); std::strcat(ub, nm); } };
+                auto addu = [&](WGPUTextureUsage bit, const char* nm) { if (u & bit) addName(nm); };
                 addu(WGPUTextureUsage_RenderAttachment, "RenderAttachment");
                 addu(WGPUTextureUsage_TextureBinding,   "TextureBinding");
                 addu(WGPUTextureUsage_StorageBinding,   "StorageBinding");
@@ -2511,17 +2419,15 @@ static void rg_draw_lifetimes(RenderGraph* rg, RenderGraphStorage& s)
     }
 }
 
-// GPU-memory view across every pool the graph owns: the transient pool, a descriptor-keyed cache of
-// textures + buffers, and the history/persistent ping-pong. the grand total answers what the graph costs
-// in VRAM, and the transient pool's create/evict log keeps steady-state reuse verifiable. drawn after
-// realize() and before release_resources()/end_frame(), so every count is this frame's live allocation.
+// GPU-memory view across every pool the graph owns: the descriptor-keyed transient pool and the
+// history/persistent ping-pong. drawn after realize() and before release_resources(), so every count is
+// this frame's live allocation.
 static void rg_draw_memory(RenderGraphStorage& s)
 {
     TransientResourcePool&  tp   = s.m_allocator->transient;
     PersistentResourcePool& pool = s.m_allocator->pool;
 
-    // one descriptor-keyed cache tagged by Entry::kind, one physical object per entry, idle ones retained
-    // kRetain frames. held includes idle.
+    // one descriptor-keyed cache tagged by Entry::kind, idle entries retained kRetain frames. held includes idle.
     int held = 0, inUse = 0, texHeld = 0, bufHeld = 0;
     uint64_t texBytes = 0, texInUseBytes = 0, bufBytes = 0, bufInUseBytes = 0;
     for (const TransientResourcePool::Entry* ep = tp.entries; ep; ep = ep->next) {
@@ -2535,8 +2441,8 @@ static void rg_draw_memory(RenderGraphStorage& s)
         }
     }
 
-    // one name-keyed pool: a history entry holds kLayers physical objects, a persistent entry 1. the buffer
-    // arm leaves size {} and format Undefined, so split on bufferSize. mem already scales by layers.
+    // one name-keyed pool: a history entry holds kLayers objects, a persistent one 1. the buffer arm leaves
+    // size {}, so split on bufferSize. mem already scales by layers.
     int tmpTexCount = 0, tmpBufCount = 0;
     uint64_t tmpTexBytes = 0, tmpBufBytes = 0;
     for (const PersistentResourcePool::Entry* ep = pool.entries; ep; ep = ep->next) {
@@ -2574,8 +2480,7 @@ static void rg_draw_memory(RenderGraphStorage& s)
         ImGui::BulletText("pool buf       %-9s  %d entries", cbb, tmpBufCount);
     }
 
-    // each packed transient would otherwise own a slot-sized object, so the win is the slot bytes counted
-    // once per member minus once per slot
+    // the win is the slot bytes counted once per member minus once per slot
     if (s.m_slotCount) {
         auto phBytes = [](const PhysicalResource& ph) -> uint64_t {
             return ph.kind == ResourceKind::Buffer ? ph.bufferSize : texture_bytes(ph.sig.size, ph.sig.format);
@@ -2589,8 +2494,8 @@ static void rg_draw_memory(RenderGraphStorage& s)
             "aliasing: %u transients packed onto %u objects, saved %s", logical, s.m_slotCount, sb);
     }
 
-    // an attachment cleared+discarded in one pass and never read need not leave the GPU. the feature flag
-    // decides whether the bit reaches the driver, this list shows what qualified.
+    // an attachment cleared+discarded in one pass and never read need not leave the GPU. the flag decides
+    // whether the bit reaches the driver, this list shows what qualified.
     {
         if (s.m_allocator->transientFeatureOn)
             ImGui::TextColored(ImVec4(0.59f, 0.90f, 0.59f, 1),
@@ -2646,7 +2551,6 @@ static void rg_draw_memory(RenderGraphStorage& s)
         ImGui::TableSetupColumn("state");
         ImGui::TableSetupColumn("last use");   // descriptor-keyed pool has no per-row name; show the last claimant
         ImGui::TableHeadersRow();
-        int idx = 0;
         for (const TransientResourcePool::Entry* ep = tp.entries; ep; ep = ep->next) {
             const TransientResourcePool::Entry& e = *ep;
             if (e.kind == ResourceKind::Buffer) continue;   // buffers listed in their own table below
@@ -2759,9 +2663,8 @@ static void rg_draw_memory(RenderGraphStorage& s)
         if (!any) ImGui::TextDisabled("(none)");
     }
 
-    // caller-owned: real GPU memory the graph writes but does NOT allocate, so it sits outside the total
-    // above. the mem column stays blank, since the graph never owns the bytes and import records no format.
-    // the point is to make the caller-owned surface visible, not to double-count it.
+    // caller-owned: GPU memory the graph writes but does NOT allocate, so it sits outside the total above.
+    // the mem column stays blank, import records no format.
     ImGui::Spacing();
     ImGui::TextDisabled("imported (caller-owned, not in VRAM total)");
     if (ImGui::BeginTable("tp_imported", 3, tf)) {
@@ -2806,9 +2709,8 @@ static void rg_draw_memory(RenderGraphStorage& s)
     ImGui::EndChild();
 }
 
-// one usage bar for a growable block-chained arena: `value` bytes against the arena's CURRENT capacity,
-// which itself grows as blocks chain on. a block count > 1 means the arena outgrew its first block this
-// run. label doubles as the InvisibleButton id, so keep them unique.
+// one usage bar for a growable block-chained arena, value against its CURRENT capacity. blocks > 1 means
+// it outgrew its first block. label doubles as the InvisibleButton id, so keep them unique.
 static void rg_draw_arena_bar(const char* label, const char* valueLabel, size_t value, const Arena& arena, ImU32 color)
 {
     const double kib  = 1024.0;
@@ -2853,10 +2755,8 @@ static void rg_draw_arena_bar(const char* label, const char* valueLabel, size_t 
     }
 }
 
-// the GraphAllocator as three stacked bars, one per independent arena. `front` holds the frame's permanent
-// objects, `scratch` holds compile()'s temporaries and is rewound per scope, so it shows a per-frame
-// high-water rather than the empty live value, and `persist` backs the pool Entry cells and is never
-// per-frame reset, so its live value is the pools' bounded footprint.
+// the GraphAllocator as three stacked bars: front holds the frame's permanent objects, scratch is rewound
+// per scope so it shows a high-water, persist backs the pool cells and is never reset.
 static void rg_draw_arena(GraphAllocator& a)
 {
     rg_draw_arena_bar("front",   "used", a.front.live_used(),   a.front,   kRGRead);
@@ -2876,8 +2776,7 @@ static ImU32 rg_series_color(uint32_t i)
     return pal[i % (sizeof(pal) / sizeof(pal[0]))];
 }
 
-// per-pass GPU us over time as a running multi-line graph, one line per pass. sampling happens in
-// imgui_layer_draw_graph, so it keeps running while another tab is foregrounded.
+// per-pass GPU us over time, one line per pass. sampled in draw(), so it keeps running on any tab.
 static void rg_draw_timings(RenderGraphStorage& s)
 {
     GpuProfiler& gp = s.m_allocator->profiler;
@@ -2981,8 +2880,7 @@ namespace webgpu_app {
 
 void RenderGraphPanel::draw()
 {
-    // consume the frame's graph unconditionally, its nodes die at the next begin_frame() and a hidden
-    // window must not leave the global dangling
+    // consume the frame's graph unconditionally, a hidden window must not leave the global dangling
     webgpu::rg::RenderGraph* rg = g_render_graph;
     g_render_graph = nullptr;
 
@@ -2997,8 +2895,7 @@ void RenderGraphPanel::draw()
 
     ImGui::Begin("RenderGraph");
 
-    // reachable whether or not a graph ran this frame, so the user can switch back from the legacy path,
-    // which feeds no graph
+    // reachable with no graph this frame, so the user can switch back from the legacy path
     ImGui::Checkbox("Drive frame from render graph", &g_use_render_graph);
     ImGui::Separator();
 
@@ -3044,8 +2941,7 @@ void RenderGraphPanel::draw()
     rg_draw_arena(*s.m_allocator);
     ImGui::Separator();
 
-    // a failed compile never realized: no slots, no pool entries, adjacency half-built. those views would
-    // render misleading empties, so gate them behind a clean graph and let the errors stand alone.
+    // a failed compile never realized, so those tabs would render misleading empties. gate them.
     if (hasErrors) {
         ImGui::TextDisabled("Graph, Lifetimes and Memory views are hidden until the errors above are fixed.");
     }
@@ -3055,7 +2951,7 @@ void RenderGraphPanel::draw()
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Lifetimes")) {
-            rg_draw_lifetimes(rg, s);
+            rg_draw_lifetimes(s);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Memory")) {
@@ -3072,7 +2968,3 @@ void RenderGraphPanel::draw()
 }
 
 } // namespace webgpu_app
-
-#if defined(_MSC_VER)
-#pragma warning(pop)
-#endif

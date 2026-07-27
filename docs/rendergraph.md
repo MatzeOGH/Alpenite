@@ -166,12 +166,49 @@ kinds. They differ in who owns the GPU object and how long it lives.
 Default to transient. Reach for the others only when you need cross-frame memory.
 
 ```cpp
-auto rt = rg->create_transient_texture("atmosphere.rt", {
+auto rt = rg->create_transient_texture("atmosphere.rt", rg::texture_2d(WGPUTextureFormat_RGBA8Unorm, w, h));
+```
+
+### Describing a texture
+
+`TextureDesc` has two mutually exclusive size arms, absolute (`width`/`height`) and relative
+(`scaleX`/`scaleY`/`relativeTo`). The factories set `dimension` and exactly one arm, so the
+combinations that would be silently ignored cannot be written:
+
+| Factory | Produces |
+|---|---|
+| `texture_2d(format, w, h)` | the common case |
+| `texture_2d_array(format, w, h, layers)` | 2D array |
+| `texture_cube(format, size)` | 6 square layers, sample with `rg::cube()` |
+| `texture_cube_array(format, size, cubes)` | `6*cubes` square layers |
+| `texture_3d(format, w, h, depth)` | volume |
+| `texture_relative(format, base, scale)` | sized off `base`, uniform or per-axis |
+
+The tail options chain onto any of them and return a modified copy:
+
+```cpp
+rg::texture_2d(fmt, w, h).samples(4)                     // MSAA
+rg::texture_cube(fmt, 128).mips(kRoughnessMips)          // prefiltered environment map
+rg::texture_relative(fmt, hdrColor, 0.5f).layers(2)      // half-res, 2 array layers
+```
+
+Prefer `texture_cube()` over spelling out 6 layers by hand: it takes one size, so non-square
+faces, which WebGPU rejects, cannot be expressed.
+
+`TextureDesc` remains a plain aggregate, so direct initialization still works and is the escape
+hatch when a factory does not fit:
+
+```cpp
+webgpu::rg::TextureDesc desc {
     .dimension = WGPUTextureDimension_2D,
     .format    = WGPUTextureFormat_RGBA8Unorm,
-    .absolute  = { w, h, 1 },
-});
+    .width     = w,
+    .height    = h,
+};
 ```
+
+Nothing checks that the arm you filled matches the `sizeKind` you set on that path, which is
+what the factories exist to avoid.
 
 ### Relative sizing
 
@@ -180,14 +217,8 @@ auto rt = rg->create_transient_texture("atmosphere.rt", {
 recomputing anything:
 
 ```cpp
-auto half = rg->create_transient_texture("bloom.half", {
-    .dimension  = WGPUTextureDimension_2D,
-    .format     = WGPUTextureFormat_RGBA16Float,
-    .sizeKind   = webgpu::rg::SizeKind::Relative,
-    .scaleX     = 0.5f,
-    .scaleY     = 0.5f,
-    .relativeTo = fullResColor,
-});
+auto half = rg->create_transient_texture("bloom.half",
+    rg::texture_relative(WGPUTextureFormat_RGBA16Float, fullResColor, 0.5f));
 ```
 
 `relativeTo` may itself be relative. The chain resolves at `compile()`. A cycle is a compile
@@ -678,16 +709,15 @@ b.sampled(depth, { .aspect = WGPUTextureAspect_DepthOnly });
 ### Layers come from the texture, not the range
 
 `layerCount` can only slice layers the texture actually has, and array layers live in
-`TextureDesc::absolute.depthOrArrayLayers` of a 2D texture. An array is 2D with depth > 1, not
-`WGPUTextureDimension_3D`. Confuse the two and you get a `3D` view where you wanted an array, or
-a range error:
+`TextureDesc::depthOrLayers` of a 2D texture. That field applies under both `SizeKind`s: a
+`Relative` texture scales its width and height off the base but keeps its own layer count. An
+array is 2D with more than one layer, not `WGPUTextureDimension_3D`. Confuse the two and you get
+a `3D` view where you wanted an array, or a range error:
 
 ```cpp
-auto cascades = rg->create_transient_texture("shadow.cascades", {
-    .dimension = WGPUTextureDimension_2D,          // 2D, not 3D
-    .format    = WGPUTextureFormat_Depth32Float,
-    .absolute  = { 2048, 2048, /*layers*/ 4 },     // the layer count lives here
-});
+// 2D array, not 3D. the 4th argument is the layer count.
+auto cascades = rg->create_transient_texture("shadow.cascades",
+    rg::texture_2d_array(WGPUTextureFormat_Depth32Float, 2048, 2048, 4));
 b.sampled(cascades, { .layerCount = 4 });    // -> 2DArray of 4
 ```
 
@@ -723,12 +753,9 @@ count is the `"is accessed at mip …"` compile error:
 
 ```cpp
 constexpr uint32_t kMips = 8;
-auto tex = rg->create_transient_texture("prefiltered", {
-    .dimension     = WGPUTextureDimension_2D,
-    .format        = WGPUTextureFormat_RGBA16Float,
-    .absolute      = { 256, 256, 1 },
-    .mipLevelCount = kMips,          // without this the texture has one mip
-});
+// .mips() is required, without it the texture has one mip
+auto tex = rg->create_transient_texture("prefiltered",
+    rg::texture_2d(WGPUTextureFormat_RGBA16Float, 256, 256).mips(kMips));
 
 for (uint32_t mip = 1; mip < kMips; ++mip) {
     rg->add_pass(names[mip], webgpu::rg::PassKind::Graphics, // names[] must outlive each add_pass call
@@ -861,11 +888,11 @@ color attachment takes at most one resolve target.
 
 ```cpp
 auto msaaColor = rg->create_transient_texture("msaa.color",
-    { .dimension = WGPUTextureDimension_2D, .format = kColorFormat, .absolute = size, .sampleCount = 4 });
+    rg::texture_2d(kColorFormat, w, h).samples(4));
 auto msaaDepth = rg->create_transient_texture("msaa.depth",
-    { .dimension = WGPUTextureDimension_2D, .format = WGPUTextureFormat_Depth32Float, .absolute = size, .sampleCount = 4 });
+    rg::texture_2d(WGPUTextureFormat_Depth32Float, w, h).samples(4));
 auto resolved  = rg->create_transient_texture("resolved",
-    { .dimension = WGPUTextureDimension_2D, .format = kColorFormat, .absolute = size }); // single-sample
+    rg::texture_2d(kColorFormat, w, h)); // single-sample
 
 rg->add_pass("forward.msaa", webgpu::rg::PassKind::Graphics,
     [&](webgpu::rg::PassBuilder& b) {
@@ -1080,13 +1107,13 @@ pass runs after the G-buffer with no manual barrier.
 
 ```cpp
 auto albedo = rg->create_transient_texture("gbuffer.albedo",
-    { .dimension = WGPUTextureDimension_2D, .format = WGPUTextureFormat_RGBA8Unorm,  .absolute = size });
+    rg::texture_2d(WGPUTextureFormat_RGBA8Unorm,  w, h));
 auto normal = rg->create_transient_texture("gbuffer.normal",
-    { .dimension = WGPUTextureDimension_2D, .format = WGPUTextureFormat_RGBA16Float, .absolute = size });
+    rg::texture_2d(WGPUTextureFormat_RGBA16Float, w, h));
 auto depth  = rg->create_transient_texture("gbuffer.depth",
-    { .dimension = WGPUTextureDimension_2D, .format = WGPUTextureFormat_Depth32Float, .absolute = size });
+    rg::texture_2d(WGPUTextureFormat_Depth32Float, w, h));
 auto lit    = rg->create_transient_texture("lit.color",
-    { .dimension = WGPUTextureDimension_2D, .format = WGPUTextureFormat_RGBA16Float, .absolute = size });
+    rg::texture_2d(WGPUTextureFormat_RGBA16Float, w, h));
 
 rg->add_pass("GBuffer", webgpu::rg::PassKind::Graphics,
     [albedo, normal, depth](webgpu::rg::PassBuilder& b) {
@@ -1127,13 +1154,7 @@ HDR target through resizes. The chain is a sequence of transients, each written 
 read by the next. The final composite loads the HDR target and adds the blurred bloom on top.
 
 ```cpp
-webgpu::rg::TextureDesc halfDesc {
-    .dimension  = WGPUTextureDimension_2D,
-    .format     = WGPUTextureFormat_RGBA16Float,
-    .sizeKind   = webgpu::rg::SizeKind::Relative,
-    .scaleX = 0.5f, .scaleY = 0.5f,
-    .relativeTo = hdrColor,
-};
+const auto halfDesc = webgpu::rg::texture_relative(WGPUTextureFormat_RGBA16Float, hdrColor, 0.5f);
 auto bright = rg->create_transient_texture("bloom.bright", halfDesc);
 auto blurH  = rg->create_transient_texture("bloom.blur_h", halfDesc);
 auto blurV  = rg->create_transient_texture("bloom.blur_v", halfDesc);
@@ -1233,11 +1254,7 @@ auto env = rg->import_texture("ibl.env",
     { .view = m_env_cube_view, .size = { envSize, envSize, 1 }, .format = WGPUTextureFormat_RGBA16Float });
 
 // The split-sum BRDF LUT: a 2D rg16f table, baked once, then read every frame.
-auto brdfLut = rg->create_persistent_texture("ibl.brdf_lut", {
-    .dimension = WGPUTextureDimension_2D,
-    .format    = WGPUTextureFormat_RG16Float,
-    .absolute  = { 512, 512, 1 },
-});
+auto brdfLut = rg->create_persistent_texture("ibl.brdf_lut", rg::texture_2d(WGPUTextureFormat_RG16Float, 512, 512));
 
 rg->add_pass("BakeBRDF", webgpu::rg::PassKind::Compute,
     [brdfLut](webgpu::rg::PassBuilder& b) {
@@ -1287,12 +1304,9 @@ to rebake when the sky changes.
 constexpr uint32_t kFaces = 6;
 constexpr uint32_t kRoughnessMips = 5; // roughness 0..1 across the chain
 
-auto prefiltered = rg->create_persistent_texture("ibl.prefiltered", {
-    .dimension     = WGPUTextureDimension_2D,      // a cube is 2D with 6 layers
-    .format        = WGPUTextureFormat_RGBA16Float,
-    .absolute      = { 128, 128, kFaces },
-    .mipLevelCount = kRoughnessMips,               // spell the chain out, there is no 0 = all
-});
+// texture_cube() takes one size, so the faces are square by construction
+auto prefiltered = rg->create_persistent_texture("ibl.prefiltered",
+    rg::texture_cube(WGPUTextureFormat_RGBA16Float, 128).mips(kRoughnessMips));
 
 uint64_t envId = m_env_cube_hash; // changes when the loaded environment changes
 for (uint32_t mip = 0; mip < kRoughnessMips; ++mip)

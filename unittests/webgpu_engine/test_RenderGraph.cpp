@@ -71,12 +71,7 @@ struct TestGraph {
 
     TextureHandle transient(std::string_view id, uint32_t mipLevelCount = 1)
     {
-        TextureDesc desc {};
-        desc.dimension = WGPUTextureDimension_2D;
-        desc.format = WGPUTextureFormat_RGBA8Unorm;
-        desc.absolute = { 16, 16, 1 };
-        desc.mipLevelCount = mipLevelCount;
-        return rg->create_transient_texture(id, desc);
+        return rg->create_transient_texture(id, texture_2d(WGPUTextureFormat_RGBA8Unorm, 16, 16).mips(mipLevelCount));
     }
 
     BufferHandle transient_buffer(std::string_view id, uint64_t size = 64)
@@ -95,14 +90,7 @@ static void add_buffer_producer(RenderGraph* rg, BufferHandle buf)
 }
 
 // 16x16 RGBA8Unorm 2D, matching TestGraph::transient
-static TextureDesc tex2d()
-{
-    TextureDesc d {};
-    d.dimension = WGPUTextureDimension_2D;
-    d.format = WGPUTextureFormat_RGBA8Unorm;
-    d.absolute = { 16, 16, 1 };
-    return d;
-}
+static TextureDesc tex2d() { return texture_2d(WGPUTextureFormat_RGBA8Unorm, 16, 16); }
 
 // fake non-null view. compile() only reads the `imported` flag, and these tests stop at compile().
 // import_buffer would not do: it calls wgpuBufferGetSize.
@@ -171,6 +159,64 @@ TEST_CASE("rg::whole preset is all mips and all layers with an inferred dimensio
     STATIC_REQUIRE(w.layerCount == 0);
 }
 
+// the factories exist to make the cross-arm combinations unwritable, so pin which fields each one sets
+// and which it leaves alone
+TEST_CASE("TextureDesc factories set one SizeKind arm and nothing else", "[RenderGraph]")
+{
+    constexpr TextureDesc t = texture_2d(WGPUTextureFormat_RGBA8Unorm, 64, 32);
+    STATIC_REQUIRE(t.dimension == WGPUTextureDimension_2D); // never left Undefined
+    STATIC_REQUIRE(t.sizeKind == SizeKind::Absolute);
+    STATIC_REQUIRE(t.width == 64);
+    STATIC_REQUIRE(t.height == 32);
+    STATIC_REQUIRE(t.depthOrLayers == 1);
+    STATIC_REQUIRE(t.mipLevelCount == 1);
+    STATIC_REQUIRE(t.sampleCount == 1);
+    STATIC_REQUIRE(t.relativeTo.id == 0); // the relative arm stays untouched
+
+    constexpr TextureDesc a = texture_2d_array(WGPUTextureFormat_RGBA8Unorm, 16, 16, 4);
+    STATIC_REQUIRE(a.depthOrLayers == 4);
+
+    constexpr TextureDesc v = texture_3d(WGPUTextureFormat_RGBA8Unorm, 16, 8, 4);
+    STATIC_REQUIRE(v.dimension == WGPUTextureDimension_3D);
+    STATIC_REQUIRE(v.depthOrLayers == 4);
+
+    // the whole point of the cube factories: one size, so the faces are square by construction
+    constexpr TextureDesc c = texture_cube(WGPUTextureFormat_RGBA16Float, 128);
+    STATIC_REQUIRE(c.width == c.height);
+    STATIC_REQUIRE(c.depthOrLayers == 6);
+    STATIC_REQUIRE(texture_cube_array(WGPUTextureFormat_RGBA16Float, 64, 3).depthOrLayers == 18);
+    STATIC_REQUIRE(texture_cube_array(WGPUTextureFormat_RGBA16Float, 64, 3).width == 64);
+}
+
+TEST_CASE("TextureDesc modifiers return a modified copy", "[RenderGraph]")
+{
+    constexpr TextureDesc base = texture_2d(WGPUTextureFormat_RGBA8Unorm, 16, 16);
+    STATIC_REQUIRE(base.mips(4).mipLevelCount == 4);
+    STATIC_REQUIRE(base.mipLevelCount == 1); // the original is untouched
+    STATIC_REQUIRE(base.samples(4).sampleCount == 4);
+    STATIC_REQUIRE(base.mips(3).samples(4).mipLevelCount == 3); // chainable
+    STATIC_REQUIRE(base.mips(3).samples(4).sampleCount == 4);
+    STATIC_REQUIRE(base.layers(6).depthOrLayers == 6);
+}
+
+TEST_CASE("texture_relative sets the relative arm and leaves width/height at zero", "[RenderGraph]")
+{
+    TestGraph g;
+    auto base = g.rg->create_transient_texture("base", tex2d());
+
+    const TextureDesc r = texture_relative(WGPUTextureFormat_RGBA8Unorm, base, 0.5f);
+    REQUIRE(r.sizeKind == SizeKind::Relative);
+    REQUIRE(r.relativeTo.id == base.id);
+    REQUIRE(r.scaleX == 0.5f);
+    REQUIRE(r.scaleY == 0.5f); // the uniform overload fills both
+    REQUIRE(r.width == 0); // absolute arm untouched, the base supplies it
+    REQUIRE(r.height == 0);
+
+    const TextureDesc rxy = texture_relative(WGPUTextureFormat_RGBA8Unorm, base, 0.5f, 0.25f);
+    REQUIRE(rxy.scaleX == 0.5f);
+    REQUIRE(rxy.scaleY == 0.25f);
+}
+
 // a `layers`-layer 2D array, written by a producer so the sampled consumer is not a read-before-write,
 // then sampled through `range`.
 static TextureHandle cube_source(TestGraph& g, uint32_t layers, WGPUTextureDimension dim = WGPUTextureDimension_2D)
@@ -178,7 +224,9 @@ static TextureHandle cube_source(TestGraph& g, uint32_t layers, WGPUTextureDimen
     TextureDesc desc {};
     desc.dimension = dim;
     desc.format = WGPUTextureFormat_RGBA8Unorm;
-    desc.absolute = { 16, 16, layers };
+    desc.width = 16;
+    desc.height = 16;
+    desc.depthOrLayers = layers;
     auto h = g.rg->create_transient_texture("cubesrc", desc);
     g.rg->add_pass(
         "produce", PassKind::Graphics,
@@ -313,7 +361,9 @@ TEST_CASE("compile - a prefiltered specular cube bakes per (mip, layer) and samp
     TextureDesc desc {};
     desc.dimension = WGPUTextureDimension_2D;
     desc.format = WGPUTextureFormat_RGBA16Float;
-    desc.absolute = { 128, 128, kFaces };
+    desc.width = 128;
+    desc.height = 128;
+    desc.depthOrLayers = kFaces;
     desc.mipLevelCount = kRoughnessMips;
     auto prefiltered = g.rg->create_persistent_texture("ibl.prefiltered", desc);
 
@@ -404,6 +454,54 @@ TEST_CASE("compile - an imported texture reports its real layer count to cube va
 
     REQUIRE(g.rg->compile() != nullptr);
     REQUIRE(error_mentions(g.rg, "covers 4 layer(s)")); // not "1 layer(s)"
+}
+
+// WebGPU requires square cube faces. the device would reject the view without naming the pass, so the
+// graph checks it. texture_cube() cannot express this, it takes a single size.
+TEST_CASE("compile - a cube view of a non-square texture is rejected", "[RenderGraph]")
+{
+    TestGraph g;
+    auto h = g.rg->create_transient_texture("oblong", texture_2d_array(WGPUTextureFormat_RGBA8Unorm, 16, 32, 6));
+    g.rg->add_pass(
+        "produce", PassKind::Graphics,
+        [h](PassBuilder& b) {
+            for (uint32_t layer = 0; layer < 6; ++layer)
+                b.color(h, layer, { .sub = { .layer = layer } });
+        },
+        [](PassContext&) {});
+    g.rg->add_pass(
+        "read", PassKind::Compute,
+        [h](PassBuilder& b) {
+            b.sampled(h, cube());
+            b.force_keep();
+        },
+        [](PassContext&) {});
+
+    REQUIRE(g.rg->compile() != nullptr);
+    REQUIRE(error_mentions(g.rg, "needs square faces but the texture is 16 x 32"));
+}
+
+// the same shape built through the factory is square, so it compiles
+TEST_CASE("compile - texture_cube() produces a valid cube source", "[RenderGraph]")
+{
+    TestGraph g;
+    auto h = g.rg->create_transient_texture("env", texture_cube(WGPUTextureFormat_RGBA8Unorm, 16));
+    g.rg->add_pass(
+        "produce", PassKind::Graphics,
+        [h](PassBuilder& b) {
+            for (uint32_t layer = 0; layer < 6; ++layer)
+                b.color(h, layer, { .sub = { .layer = layer } });
+        },
+        [](PassContext&) {});
+    g.rg->add_pass(
+        "read", PassKind::Compute,
+        [h](PassBuilder& b) {
+            b.sampled(h, cube());
+            b.force_keep();
+        },
+        [](PassContext&) {});
+
+    REQUIRE(g.rg->compile() == nullptr);
 }
 
 // a cube view of an imported 3D texture is rejected as non-2D
@@ -1213,7 +1311,8 @@ TEST_CASE("RenderGraph - compile perf (linear chain)", "[RenderGraph][!benchmark
         TextureDesc desc {};
         desc.dimension = WGPUTextureDimension_2D;
         desc.format = WGPUTextureFormat_RGBA8Unorm;
-        desc.absolute = { 16, 16, 1 };
+        desc.width = 16;
+        desc.height = 16;
 
         TextureHandle prev {};
         for (int i = 0; i < N; ++i) {
@@ -1371,6 +1470,64 @@ TEST_CASE("RenderGraph - copy_texture compiles clean and records the subresource
     REQUIRE(src->baseMip == 0);
     REQUIRE(dst->handle.id == texB.id);
     REQUIRE(dst->baseMip == 1);
+}
+
+// compile() expands "0 == all remaining" into concrete counts once, so every consumer below it reads a
+// real range instead of re-deriving one. the authoring contract (0 means all) is unchanged.
+TEST_CASE("compile - whole() mip and layer counts are expanded on the stored access", "[RenderGraph]")
+{
+    TestGraph g;
+    TextureDesc d = tex2d();
+    d.depthOrLayers = 4;
+    d.mipLevelCount = 3;
+    auto tex = g.rg->create_transient_texture("tex", d);
+
+    g.rg->add_pass(
+        "w", PassKind::Compute, [&](PassBuilder& b) { b.storage_write(tex, { .baseMip = 1, .mipCount = 1, .layerCount = 1 }); },
+        [](PassContext&) {});
+    g.rg->add_pass(
+        "r", PassKind::Compute,
+        [&](PassBuilder& b) {
+            b.sampled(tex, whole()); // mipCount 0, layerCount 0
+            b.force_keep();
+        },
+        [](PassContext&) {});
+
+    REQUIRE(g.rg->compile() == nullptr);
+
+    PassNode* readPass = storage(g.rg)->m_passes->next;
+    REQUIRE(readPass != nullptr);
+    REQUIRE(readPass->accessCount == 1);
+    REQUIRE(readPass->accesses[0].mipCount == 3); // 3 mips from mip 0
+    REQUIRE(readPass->accesses[0].layerCount == 4); // 4 layers from layer 0
+}
+
+// the expansion is relative to the declared base, not the whole texture
+TEST_CASE("compile - an expanded count starts at the declared base", "[RenderGraph]")
+{
+    TestGraph g;
+    TextureDesc d = tex2d();
+    d.depthOrLayers = 6;
+    d.mipLevelCount = 4;
+    auto tex = g.rg->create_transient_texture("tex", d);
+
+    g.rg->add_pass(
+        "w", PassKind::Compute, [&](PassBuilder& b) { b.storage_write(tex, { .baseMip = 0, .mipCount = 1, .layerCount = 1 }); },
+        [](PassContext&) {});
+    g.rg->add_pass(
+        "r", PassKind::Compute,
+        [&](PassBuilder& b) {
+            b.sampled(tex, { .baseMip = 1, .mipCount = 0, .baseLayer = 2, .layerCount = 0 });
+            b.force_keep();
+        },
+        [](PassContext&) {});
+
+    REQUIRE(g.rg->compile() == nullptr);
+
+    PassNode* readPass = storage(g.rg)->m_passes->next;
+    REQUIRE(readPass != nullptr);
+    REQUIRE(readPass->accesses[0].mipCount == 3); // 4 - 1
+    REQUIRE(readPass->accesses[0].layerCount == 4); // 6 - 2
 }
 
 TEST_CASE("RenderGraph - copy_texture between subresources of one texture is legal", "[RenderGraph]")
@@ -1775,7 +1932,8 @@ TEST_CASE("RenderGraph - msaa resolve is a write that satisfies a later read", "
     TextureDesc msaaDesc {};
     msaaDesc.dimension = WGPUTextureDimension_2D;
     msaaDesc.format = WGPUTextureFormat_RGBA8Unorm;
-    msaaDesc.absolute = { 16, 16, 1 };
+    msaaDesc.width = 16;
+    msaaDesc.height = 16;
     msaaDesc.sampleCount = 4;
     auto msaaColor = g.rg->create_transient_texture("msaa.color", msaaDesc);
     auto resolved = g.transient("resolved"); // single-sample, same format+size
@@ -1830,7 +1988,8 @@ TEST_CASE("RenderGraph - stencil mask write then read-only test pass", "[RenderG
     TextureDesc dsDesc {};
     dsDesc.dimension = WGPUTextureDimension_2D;
     dsDesc.format = WGPUTextureFormat_Depth24PlusStencil8;
-    dsDesc.absolute = { 16, 16, 1 };
+    dsDesc.width = 16;
+    dsDesc.height = 16;
     auto ds = g.rg->create_transient_texture("mask.ds", dsDesc);
     auto out = g.transient("out");
 
@@ -1889,7 +2048,9 @@ TEST_CASE("RenderGraph - sampled ViewRange is recorded on the access", "[RenderG
     TextureDesc desc {};
     desc.dimension = WGPUTextureDimension_2D;
     desc.format = WGPUTextureFormat_RGBA8Unorm;
-    desc.absolute = { 16, 16, 6 };
+    desc.width = 16;
+    desc.height = 16;
+    desc.depthOrLayers = 6;
     desc.mipLevelCount = 4;
     auto env = g.rg->create_transient_texture("env", desc);
     auto out = g.transient("out");
@@ -2734,7 +2895,8 @@ TEST_CASE("RenderGraph exec - clear then readback returns the clear color", "[Re
             TextureDesc d {};
             d.dimension = WGPUTextureDimension_2D;
             d.format = WGPUTextureFormat_RGBA8Unorm;
-            d.absolute = { W, H, 1 };
+            d.width = W;
+            d.height = H;
             return d;
         }());
         auto buf = rg->import_buffer("smoke.readback", readback.handle());
@@ -3066,7 +3228,8 @@ TEST_CASE("RenderGraph exec - transient eviction clock is per-frame, not per-gra
 
     auto clear_transient = [](RenderGraph* rg, const char* id, uint32_t wh, WGPUTextureFormat fmt) {
         TextureDesc d = tex2d();
-        d.absolute = { wh, wh, 1 };
+        d.width = wh;
+        d.height = wh;
         d.format = fmt;
         auto t = rg->create_transient_texture(id, d);
         rg->add_pass(
@@ -3111,7 +3274,8 @@ TEST_CASE("RenderGraph exec - two sizes used in one frame coexist and neither is
 
     auto clear_sized = [](RenderGraph* rg, uint32_t wh, WGPUTexture* out) {
         TextureDesc d = tex2d(); // same format; only the size differs between the two graphs
-        d.absolute = { wh, wh, 1 };
+        d.width = wh;
+        d.height = wh;
         auto t = rg->create_transient_texture("t", d);
         rg->add_pass(
             "w", PassKind::Graphics,
@@ -3153,12 +3317,7 @@ TEST_CASE("RenderGraph exec - two sizes used in one frame coexist and neither is
 // only proof the real realize -> acquire -> end_frame path resizes as designed, identity and all.
 
 // RGBA8 2D at a caller-chosen size, for the resize and relative-sizing tests
-static TextureDesc tex2d_sized(uint32_t w, uint32_t h)
-{
-    TextureDesc d = tex2d();
-    d.absolute = { w, h, 1 };
-    return d;
-}
+static TextureDesc tex2d_sized(uint32_t w, uint32_t h) { return texture_2d(WGPUTextureFormat_RGBA8Unorm, w, h); }
 
 TEST_CASE("RenderGraph exec - a resize destroys the old-size transient", "[RenderGraph][gpu]")
 {
@@ -3391,7 +3550,7 @@ TEST_CASE("RenderGraph - relative-sized transient rounds against its base", "[Re
     rd.scaleX = 0.25f;
     rd.scaleY = 0.25f;
     rd.relativeTo = base;
-    rd.absolute = { 0, 0, 1 }; // width/height come from the base; depthOrArrayLayers stays 1
+    // no width/height: Relative takes them from the base, and depthOrLayers defaults to 1
     auto child = g.rg->create_transient_texture("child", rd);
 
     g.rg->add_pass(
@@ -3424,7 +3583,6 @@ TEST_CASE("RenderGraph - relative-size chain resolves each level", "[RenderGraph
         d.scaleX = 0.5f;
         d.scaleY = 0.5f;
         d.relativeTo = parent;
-        d.absolute = { 0, 0, 1 };
         return g.rg->create_transient_texture(id, d);
     };
     auto mid = half_of("mid", base);
@@ -3450,12 +3608,7 @@ TEST_CASE("RenderGraph - relative-size chain resolves each level", "[RenderGraph
 
 static TextureDesc tex2d_fmt(WGPUTextureFormat fmt, uint32_t w = 16, uint32_t h = 16, uint32_t samples = 1)
 {
-    TextureDesc d {};
-    d.dimension = WGPUTextureDimension_2D;
-    d.format = fmt;
-    d.absolute = { w, h, 1 };
-    d.sampleCount = samples;
-    return d;
+    return texture_2d(fmt, w, h).samples(samples);
 }
 
 TEST_CASE("compile - a Graphics pass with no attachments is rejected", "[RenderGraph]")
@@ -3684,13 +3837,51 @@ TEST_CASE("compile - a stencil format with stencil ops is valid", "[RenderGraph]
     REQUIRE(g.rg->compile() == nullptr);
 }
 
+// depthOrLayers applies under both SizeKinds, so a 3D volume can size itself off another texture. only
+// width and height scale, there is no scaleZ, so the depth survives the resolve untouched.
+TEST_CASE("compile - a 3D texture can be relatively sized and keeps its depth", "[RenderGraph]")
+{
+    using webgpu::rg::Internal::find_node;
+
+    TestGraph g;
+    auto base = g.rg->create_transient_texture("base", tex2d_sized(64, 32));
+
+    TextureDesc d {};
+    d.dimension = WGPUTextureDimension_3D;
+    d.format = WGPUTextureFormat_RGBA8Unorm;
+    d.sizeKind = SizeKind::Relative;
+    d.scaleX = 0.5f;
+    d.scaleY = 0.5f;
+    d.relativeTo = base;
+    d.depthOrLayers = 7; // not a power of two, so a stray scale would show
+    auto vol = g.rg->create_transient_texture("vol", d);
+
+    g.rg->add_pass(
+        "seed", PassKind::Graphics, [&](PassBuilder& b) { b.color(base, 0); }, [](PassContext&) {});
+    g.rg->add_pass(
+        "fill", PassKind::Compute,
+        [&](PassBuilder& b) {
+            b.storage_write(vol);
+            b.force_keep();
+        },
+        [](PassContext&) {});
+
+    REQUIRE(g.rg->compile() == nullptr);
+    const WGPUExtent3D got = find_node(g.rg, vol)->resolved;
+    REQUIRE(got.width == 32); // 64 * 0.5
+    REQUIRE(got.height == 16); // 32 * 0.5
+    REQUIRE(got.depthOrArrayLayers == 7); // depth is taken as-is, never scaled
+}
+
 // execute() never sets depthSlice, which WebGPU requires for a 3D color target
 TEST_CASE("compile - a 3D texture used as a render target is rejected", "[RenderGraph]")
 {
     TestGraph g;
     TextureDesc d = tex2d_fmt(WGPUTextureFormat_RGBA8Unorm);
     d.dimension = WGPUTextureDimension_3D;
-    d.absolute = { 16, 16, 4 };
+    d.width = 16;
+    d.height = 16;
+    d.depthOrLayers = 4;
     auto vol = g.rg->create_transient_texture("vol", d);
     g.rg->add_pass(
         "draw", PassKind::Graphics,
@@ -3722,7 +3913,9 @@ TEST_CASE("PassContext::copy_extent - an array copy covers one layer rather than
 {
     TestGraph g;
     TextureDesc d = tex2d();
-    d.absolute = { 16, 16, 4 }; // 4 array layers
+    d.width = 16;
+    d.height = 16;
+    d.depthOrLayers = 4; // 4 array layers
     auto src = g.rg->create_transient_texture("src", d);
     auto dst = g.rg->create_transient_texture("dst", d);
 
@@ -3793,7 +3986,6 @@ TEST_CASE("RenderGraph - a relative size that rounds to zero clamps to 1", "[Ren
     rd.scaleX = 0.25f; // 1 * 0.25 = 0.25 -> rounds to 0
     rd.scaleY = 0.25f;
     rd.relativeTo = base;
-    rd.absolute = { 0, 0, 1 };
     auto child = g.rg->create_transient_texture("child", rd);
 
     g.rg->add_pass(
@@ -3817,7 +4009,8 @@ TEST_CASE("RenderGraph - a live texture with a zero absolute extent is rejected"
     // the declare-time assert covers this in a debug build, so reach the compile backstop the same
     // white-box way the cyclic relativeTo test does
     auto zero = g.rg->create_transient_texture("zero", tex2d());
-    Internal::find_node(g.rg, zero)->absolute = { 0, 0, 1 };
+    Internal::find_node(g.rg, zero)->width = 0;
+    Internal::find_node(g.rg, zero)->height = 0;
     Internal::find_node(g.rg, zero)->resolved = {};
 
     g.rg->add_pass(
@@ -3835,7 +4028,7 @@ TEST_CASE("RenderGraph - a live texture with a zero absolute extent is rejected"
 // the minimized-window case. the error must name the import, not the relative children, which clamp to
 // 1 and are not themselves wrong. the height is deliberately non-zero: were the memo guard to test width
 // alone this would fall through to the Absolute arm and report 0 x 0, since an import never fills
-// `absolute`.
+// width/height.
 TEST_CASE("RenderGraph - a zero-sized import is rejected and its children are not", "[RenderGraph]")
 {
     TestGraph g;
@@ -3848,7 +4041,6 @@ TEST_CASE("RenderGraph - a zero-sized import is rejected and its children are no
     rd.scaleX = 0.5f;
     rd.scaleY = 0.5f;
     rd.relativeTo = surface;
-    rd.absolute = { 0, 0, 1 };
     auto child = g.rg->create_transient_texture("half", rd);
 
     g.rg->add_pass(
@@ -3885,16 +4077,17 @@ TEST_CASE("RenderGraph - a relative size with no relativeTo is rejected", "[Rend
     REQUIRE(error_mentions(g.rg, "names no resource to size against"));
 }
 
-// depthOrArrayLayers == 0 means one layer everywhere else, so the resolver normalizes rather than
-// treating it as a zero extent
-TEST_CASE("RenderGraph - a zero depthOrArrayLayers normalizes to one layer", "[RenderGraph]")
+// depthOrLayers defaults to 1, so reaching 0 takes an explicit write. apply_texture_desc normalizes it
+// at declare time rather than letting it read as a zero extent later
+TEST_CASE("RenderGraph - a zero depthOrLayers normalizes to one layer", "[RenderGraph]")
 {
     using webgpu::rg::Internal::find_node;
 
     TestGraph g;
     TextureDesc d = tex2d();
-    d.absolute = { 16, 16, 0 };
+    d.depthOrLayers = 0;
     auto tex = g.rg->create_transient_texture("tex", d);
+    REQUIRE(find_node(g.rg, tex)->depthOrLayers == 1); // normalized on the node, before any resolve
 
     g.rg->add_pass(
         "w", PassKind::Graphics,
@@ -3915,7 +4108,8 @@ TEST_CASE("RenderGraph - a zero absolute extent is caught through the public API
 {
     TestGraph g;
     TextureDesc d = tex2d();
-    d.absolute = { 0, 0, 1 };
+    d.width = 0;
+    d.height = 0;
     auto zero = g.rg->create_transient_texture("zero", d);
 
     g.rg->add_pass(
@@ -3958,7 +4152,8 @@ TEST_CASE("RenderGraph - an unused zero-sized texture compiles clean", "[RenderG
     TestGraph g;
     auto used = g.transient("used");
     auto dead = g.rg->create_transient_texture("dead", tex2d());
-    Internal::find_node(g.rg, dead)->absolute = { 0, 0, 1 }; // declared, never accessed
+    Internal::find_node(g.rg, dead)->width = 0; // declared, never accessed
+    Internal::find_node(g.rg, dead)->height = 0;
     Internal::find_node(g.rg, dead)->resolved = {};
 
     g.rg->add_pass(
@@ -4150,7 +4345,8 @@ TEST_CASE("RenderGraph - single clear+discard depth attachment is inferred trans
     TextureDesc dd {};
     dd.dimension = WGPUTextureDimension_2D;
     dd.format = WGPUTextureFormat_Depth32Float;
-    dd.absolute = { 16, 16, 1 };
+    dd.width = 16;
+    dd.height = 16;
     auto ds = g.rg->create_transient_texture("ds", dd);
 
     g.rg->add_pass(
@@ -4297,7 +4493,9 @@ TEST_CASE("RenderGraph - create_initialized_texture names one bake pass per laye
 {
     TestGraph g;
     TextureDesc d = tex2d();
-    d.absolute = { 16, 16, 3 };
+    d.width = 16;
+    d.height = 16;
+    d.depthOrLayers = 3;
     auto fallback = g.rg->create_initialized_texture("fallback", d, { 0, 0, 0, 1 });
     auto out = g.transient("out");
 
@@ -4326,7 +4524,9 @@ TEST_CASE("RenderGraph - a long multi-layer init id is not truncated", "[RenderG
     TestGraph g;
     const std::string longId(200, 'y');
     TextureDesc d = tex2d();
-    d.absolute = { 16, 16, 2 };
+    d.width = 16;
+    d.height = 16;
+    d.depthOrLayers = 2;
     auto fallback = g.rg->create_initialized_texture(longId, d, { 0, 0, 0, 1 });
     auto out = g.transient("out");
 
@@ -4479,7 +4679,9 @@ TEST_CASE("RenderGraph exec - ctx.view hands back the shape the access declared"
 
     g.frame([&](RenderGraph* rg) {
         TextureDesc d = tex2d();
-        d.absolute = { 16, 16, 6 }; // 6 layers: samplable as a cube, or as a plain 2D layer
+        d.width = 16;
+        d.height = 16;
+        d.depthOrLayers = 6; // 6 layers: samplable as a cube, or as a plain 2D layer
         auto env = rg->create_transient_texture("env", d);
         // each reader needs its own attachment, and unlike the compile-only cube tests this executes
         auto outCube = rg->create_transient_texture("outCube", tex2d());
@@ -4900,14 +5102,7 @@ TEST_CASE("execute - a view-only import returns the registered view, a texture-b
 TEST_CASE("compile - doc example: deferred shading, G-buffer plus compute lighting", "[RenderGraph]")
 {
     TestGraph g;
-    const WGPUExtent3D size { 64, 64, 1 };
-    auto desc = [&](WGPUTextureFormat fmt) {
-        TextureDesc d {};
-        d.dimension = WGPUTextureDimension_2D;
-        d.format = fmt;
-        d.absolute = size;
-        return d;
-    };
+    auto desc = [&](WGPUTextureFormat fmt) { return texture_2d(fmt, 64, 64); };
     auto albedo = g.rg->create_transient_texture("gbuffer.albedo", desc(WGPUTextureFormat_RGBA8Unorm));
     auto normal = g.rg->create_transient_texture("gbuffer.normal", desc(WGPUTextureFormat_RGBA16Float));
     auto depth = g.rg->create_transient_texture("gbuffer.depth", desc(WGPUTextureFormat_Depth32Float));
@@ -4939,23 +5134,13 @@ TEST_CASE("compile - doc example: deferred shading, G-buffer plus compute lighti
 TEST_CASE("compile - doc example: bloom, relative-sized downsample chain", "[RenderGraph]")
 {
     TestGraph g;
-    TextureDesc fullDesc {};
-    fullDesc.dimension = WGPUTextureDimension_2D;
-    fullDesc.format = WGPUTextureFormat_RGBA16Float;
-    fullDesc.absolute = { 128, 128, 1 };
-    auto hdrColor = g.rg->create_transient_texture("hdr.color", fullDesc);
+    auto hdrColor = g.rg->create_transient_texture("hdr.color", texture_2d(WGPUTextureFormat_RGBA16Float, 128, 128));
 
     // the example assumes hdrColor already exists; give it a producer
     g.rg->add_pass(
         "scene", PassKind::Graphics, [hdrColor](PassBuilder& b) { b.color(hdrColor, 0); }, [](PassContext&) {});
 
-    TextureDesc halfDesc {};
-    halfDesc.dimension = WGPUTextureDimension_2D;
-    halfDesc.format = WGPUTextureFormat_RGBA16Float;
-    halfDesc.sizeKind = SizeKind::Relative;
-    halfDesc.scaleX = 0.5f;
-    halfDesc.scaleY = 0.5f;
-    halfDesc.relativeTo = hdrColor;
+    const auto halfDesc = texture_relative(WGPUTextureFormat_RGBA16Float, hdrColor, 0.5f);
     auto bright = g.rg->create_transient_texture("bloom.bright", halfDesc);
     auto blurH = g.rg->create_transient_texture("bloom.blur_h", halfDesc);
     auto blurV = g.rg->create_transient_texture("bloom.blur_v", halfDesc);
@@ -4988,10 +5173,7 @@ TEST_CASE("compile - doc example: bloom, relative-sized downsample chain", "[Ren
 TEST_CASE("compile - doc example: TAA, history plus a camera-cut hash", "[RenderGraph]")
 {
     TestGraph g;
-    TextureDesc colorDesc {};
-    colorDesc.dimension = WGPUTextureDimension_2D;
-    colorDesc.format = WGPUTextureFormat_RGBA16Float;
-    colorDesc.absolute = { 64, 64, 1 };
+    const auto colorDesc = texture_2d(WGPUTextureFormat_RGBA16Float, 64, 64);
 
     auto currentColor = g.rg->create_transient_texture("current.color", colorDesc);
     auto velocity = g.rg->create_transient_texture("velocity", colorDesc);

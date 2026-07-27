@@ -229,8 +229,7 @@ webgpu::rg::TextureHandle Window::paint(webgpu::rg::RenderGraph* rg, bool use_re
         atmosphere = m_context->atmosphere_renderer()->draw(rg, m_camera_bind_group->handle());
     } else {
         atmosphere = rg->create_initialized_texture("atmosphere.fallback",
-            { .dimension = WGPUTextureDimension_2D, .format = WGPUTextureFormat_RGBA8Unorm, .absolute = { 1, 1, 1 } },
-            { 0, 0, 0, 1 });
+            webgpu::rg::texture_2d(WGPUTextureFormat_RGBA8Unorm, 1, 1), { 0, 0, 0, 1 });
     }
 
     if (!use_render_graph)
@@ -240,12 +239,7 @@ webgpu::rg::TextureHandle Window::paint(webgpu::rg::RenderGraph* rg, bool use_re
     const uint32_t h = uint32_t(m_swapchain_size.y);
 
     auto make_target = [&](std::string_view id, WGPUTextureFormat fmt) {
-        return rg->create_transient_texture(id,
-            {
-                .dimension = WGPUTextureDimension_2D,
-                .format = fmt,
-                .absolute = { w, h, 1 },
-            });
+        return rg->create_transient_texture(id, webgpu::rg::texture_2d(fmt, w, h));
     };
     auto albedo = make_target("gbuffer.albedo", WGPUTextureFormat_R32Uint);
 
@@ -285,11 +279,7 @@ webgpu::rg::TextureHandle Window::paint(webgpu::rg::RenderGraph* rg, bool use_re
 
     // Compose: resolve G-buffer + atmosphere into a full-size colour target.
     auto composed = rg->create_transient_texture("composed_color",
-        {
-            .dimension = WGPUTextureDimension_2D,
-            .format = m_context->webgpu_ctx().surface_texture_format(),
-            .absolute = { w, h, 1 },
-        });
+        webgpu::rg::texture_2d(m_context->webgpu_ctx().surface_texture_format(), w, h));
     auto compose_depth = make_target("compose_depth", WGPUTextureFormat_Depth24Plus);
 
     webgpu::rg::TextureHandle cloud_color;
@@ -303,11 +293,9 @@ webgpu::rg::TextureHandle Window::paint(webgpu::rg::RenderGraph* rg, bool use_re
     } else {
 
         cloud_color = rg->create_initialized_texture("clouds.fallback_color",
-            { .dimension = WGPUTextureDimension_2D, .format = WGPUTextureFormat_RGBA16Float, .absolute = { 1, 1, 1 } },
-            { 0, 0, 0, 1 });
+            webgpu::rg::texture_2d(WGPUTextureFormat_RGBA16Float, 1, 1), { 0, 0, 0, 1 });
         cloud_depth = rg->create_initialized_texture("clouds.fallback_depth",
-            { .dimension = WGPUTextureDimension_2D, .format = WGPUTextureFormat_R32Float, .absolute = { 1, 1, 1 } },
-            { 0, 0, 0, 0 });
+            webgpu::rg::texture_2d(WGPUTextureFormat_R32Float, 1, 1), { 0, 0, 0, 0 });
     }
 
     auto overlay_result = m_context->overlay_renderer()->draw(

@@ -527,24 +527,9 @@ CloudRenderer::GraphOutput CloudRenderer::draw(webgpu::rg::RenderGraph* rg,
     const glm::uvec2 lo = m_output_lo_resolution;
     const glm::uvec2 hi = m_output_hi_resolution;
 
-    auto lo_color = rg->create_transient_texture("clouds.lo_color",
-        {
-            .dimension = WGPUTextureDimension_2D,
-            .format = WGPUTextureFormat_RGBA16Float,
-            .absolute = { lo.x, lo.y, 1 },
-        });
-    auto lo_depth = rg->create_transient_texture("clouds.lo_depth",
-        {
-            .dimension = WGPUTextureDimension_2D,
-            .format = WGPUTextureFormat_R32Float,
-            .absolute = { lo.x, lo.y, 1 },
-        });
-    auto hi_color = rg->create_history_texture("clouds.hi_color",
-        {
-            .dimension = WGPUTextureDimension_2D,
-            .format = WGPUTextureFormat_RGBA16Float,
-            .absolute = { hi.x, hi.y, 1 },
-        });
+    auto lo_color = rg->create_transient_texture("clouds.lo_color", webgpu::rg::texture_2d(WGPUTextureFormat_RGBA16Float, lo.x, lo.y));
+    auto lo_depth = rg->create_transient_texture("clouds.lo_depth", webgpu::rg::texture_2d(WGPUTextureFormat_R32Float, lo.x, lo.y));
+    auto hi_color = rg->create_history_texture("clouds.hi_color", webgpu::rg::texture_2d(WGPUTextureFormat_RGBA16Float, hi.x, hi.y));
 
 
     rg->add_pass("Clouds.Render", webgpu::rg::PassKind::Compute,

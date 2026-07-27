@@ -70,12 +70,8 @@ webgpu::rg::TextureHandle AtmosphereRenderer::draw(webgpu::rg::RenderGraph* rg, 
 {
     auto s = m_atmosphere_framebuffer->size();
 
-    auto renderTarget = rg->create_transient_texture("atmosphere_framebuffer", 
-        {
-            .dimension = WGPUTextureDimension_2D,
-            .format = WGPUTextureFormat_RGBA8Unorm,
-            .absolute = {s.x, s.y, 1},
-        });
+    auto renderTarget = rg->create_transient_texture("atmosphere_framebuffer",
+        webgpu::rg::texture_2d(WGPUTextureFormat_RGBA8Unorm, s.x, s.y));
 
     
     rg->add_pass("Atmosphere", webgpu::rg::PassKind::Graphics, 

@@ -190,10 +190,7 @@ OverlayRenderer::GraphResult OverlayRenderer::draw(webgpu::rg::RenderGraph* rend
 
 
     auto run_bucket = [&](const std::vector<Overlay*>& bucket, std::string_view clear_id, const char* target_prefix) -> webgpu::rg::TextureHandle {
-        webgpu::rg::TextureDesc desc {};
-        desc.dimension = WGPUTextureDimension_2D;
-        desc.format = WGPUTextureFormat_RGBA8Unorm;
-        desc.absolute = { output_size.x, output_size.y, 1 };
+        const webgpu::rg::TextureDesc desc = webgpu::rg::texture_2d(WGPUTextureFormat_RGBA8Unorm, output_size.x, output_size.y);
 
         webgpu::rg::TextureHandle source = render_graph->create_initialized_texture(clear_id, desc, { 0.0, 0.0, 0.0, 0.0 });
 
