@@ -357,7 +357,7 @@ void TransientResourcePool::acquire(WGPUDevice device, uint64_t size, WGPUBuffer
         {
             e->inUse = true;
             e->lastUsedFrame = frame;
-            e->identity = identity; // last claimant, see the texture overload
+            e->identity = identity; // last claimant
             outBuf = e->buf;
             return;
         }
@@ -732,6 +732,14 @@ ResourceNode* find_node(RenderGraph* rg, ResourceHandle h)
     return nullptr;
 }
 
+static inline ResourceNode* node_for(RenderGraph* graph, ResourceHandle h, [[maybe_unused]] ResourceKind kind)
+{
+    Q_ASSERT(h.id != 0);
+    Q_ASSERT(h.kind == kind && "ctx: handle kind disagrees with the resolver; a handle was converted across kinds");
+    ResourceNode* r = find_node(graph, h);
+    Q_ASSERT(r != nullptr && "failed to find node! Handle is 0 or from another graph");
+    return r;
+}
 
 enum struct DefineMode : uint8_t { None, IfClearLoadOp, Always, CopyDst };
 
@@ -1086,7 +1094,7 @@ RenderGraph* start_recording(GraphAllocator* allocator)
 }
 
 
-static bool access_defines(const ResourceAccess& a)
+static inline bool access_defines(const ResourceAccess& a)
 {
     switch (access_semantics(a.type).define) {
     case DefineMode::None:          return false;
@@ -1097,8 +1105,8 @@ static bool access_defines(const ResourceAccess& a)
     return false;
 }
 
-static WGPUTextureUsage tex_usage_of(AccessType t) { return access_semantics(t).texUsage; }
-static WGPUBufferUsage buf_usage_of(AccessType t) { return access_semantics(t).bufUsage; }
+static inline WGPUTextureUsage tex_usage_of(AccessType t) { return access_semantics(t).texUsage; }
+static inline WGPUBufferUsage buf_usage_of(AccessType t) { return access_semantics(t).bufUsage; }
 
 // half-open ranges [base, base+count). count 0 means all remaining.
 static constexpr bool ranges_overlap(uint32_t aBase, uint32_t aCount, uint32_t bBase, uint32_t bCount)
@@ -1148,8 +1156,8 @@ static void validate_texture_desc(const TextureDesc& desc)
         "When relative to another texture it cannot be a scale of 0");
     Q_ASSERT_X(desc.sizeKind != SizeKind::Relative || desc.relativeTo.id != 0, "validate_texture_desc",
         "SizeKind::Relative needs a relativeTo handle to size against, otherwise it resolves to nothing");
-    Q_ASSERT_X(desc.sizeKind != SizeKind::Absolute || (desc.absolute.width && desc.absolute.height), "validate_texture_desc",
-        "SizeKind::Absolute needs a non-zero width and height in TextureDesc.absolute");
+    Q_ASSERT_X(desc.sizeKind != SizeKind::Absolute || (desc.width && desc.height), "validate_texture_desc",
+        "SizeKind::Absolute needs a non-zero TextureDesc.width and TextureDesc.height");
     Q_ASSERT_X(desc.sampleCount == 1 || desc.sampleCount == 4, "validate_texture_desc",
         "WebGPU(1.0) only supports MSAA samples of 1 or 4.");
     Q_ASSERT_X(desc.dimension != WGPUTextureDimension_3D || desc.sampleCount == 1, "validate_texture_desc",
@@ -1167,12 +1175,14 @@ static void apply_texture_desc(ResourceNode* r, const TextureDesc& desc)
     r->scaleX           = desc.scaleX;
     r->scaleY           = desc.scaleY;
     r->relativeToHandle = desc.relativeTo;
-    r->absolute         = desc.absolute;
+    r->width            = desc.width;
+    r->height           = desc.height;
+    r->depthOrLayers    = desc.depthOrLayers ? desc.depthOrLayers : 1;
     r->mipLevelCount    = desc.mipLevelCount ? desc.mipLevelCount : 1;
     r->sampleCount      = desc.sampleCount ? desc.sampleCount : 1;
 }
 
-static TexSignature tex_signature(const ResourceNode* r)
+static inline TexSignature tex_signature(const ResourceNode* r)
 {
     return TexSignature { r->resolved, r->format, r->dimension, r->mipLevelCount, r->sampleCount };
 }
@@ -1250,6 +1260,8 @@ TextureHandle RenderGraph::import_texture(std::string_view id, const ImportTextu
             && "import_texture: size disagrees with the backing texture (stale extent after resize?)");
     }
     resouce->resolved = size;
+    // imports carry a layer count too, so node_layers() answers for every texture node from declare time on
+    resouce->depthOrLayers = size.depthOrArrayLayers ? size.depthOrArrayLayers : 1;
     resouce->format = format;
     resouce->mipLevelCount = mipCount ? mipCount : 1;
     resouce->sampleCount = sampleCount ? sampleCount : 1;
@@ -1385,7 +1397,7 @@ TextureHandle RenderGraph::create_persistent_texture(std::string_view id, const 
     return TextureHandle { resouce->handle };
 }
 
-static bool is_depth_format(WGPUTextureFormat f)
+static inline bool is_depth_format(WGPUTextureFormat f)
 {
     switch (f)
     {
@@ -1400,7 +1412,7 @@ static bool is_depth_format(WGPUTextureFormat f)
     }
 }
 
-static bool format_has_stencil(WGPUTextureFormat f)
+static inline bool format_has_stencil(WGPUTextureFormat f)
 {
     switch (f)
     {
@@ -1419,7 +1431,7 @@ TextureHandle RenderGraph::create_initialized_texture(std::string_view id, const
     Q_ASSERT_X(desc.dimension != WGPUTextureDimension_3D, "create_initialized_texture",
         "3D textures cannot be cleared this way, the graph cannot use them as render targets");
     TextureHandle h = create_persistent_texture(id, desc);
-    uint32_t layers = desc.absolute.depthOrArrayLayers ? desc.absolute.depthOrArrayLayers : 1;
+    uint32_t layers = desc.depthOrLayers ? desc.depthOrLayers : 1;
     bool depth = is_depth_format(desc.format);
     Arena& scratch = storage(this)->m_allocator->scratch;
 
@@ -1510,7 +1522,7 @@ void RenderGraph::set_exec(PassBuilder& builder, void* obj, void (*fn)(void*, Pa
     builder.m_pass->exec_fn = fn;
 }
 
-static void add_dependency(GraphAllocator* alloc, PassNode* p, PassNode* dep)
+static inline void add_dependency(GraphAllocator* alloc, PassNode* p, PassNode* dep)
 {
     NodeAdjacency* link = alloc->make<NodeAdjacency>();
     link->pass = dep;
@@ -1608,7 +1620,7 @@ static void topo_visit(PassNode* root, PassNode** order, uint32_t& count, bool& 
     }
 }
 
-static bool is_sink(PassNode* p, const bool* sinkRoot)
+static inline bool is_sink(PassNode* p, const bool* sinkRoot)
 {
     for (uint32_t i = 0; i < p->accessCount; ++i)
         if (access_is_write(p->accesses[i].type) && sinkRoot[p->accesses[i].handle.id])
@@ -1616,14 +1628,18 @@ static bool is_sink(PassNode* p, const bool* sinkRoot)
     return false;
 }
 
+static inline uint32_t node_layers(const ResourceNode* r)
+{
+    return (r->dimension == WGPUTextureDimension_2D) ? r->depthOrLayers : 1;
+}
+
 static WGPUExtent3D resolve_size(ResourceNode* r, RenderGraphStorage& s)
 {
-    if (r->imported || r->resolved.width)
+    if (r->imported || r->resolvedDone)
         return r->resolved;
     if (r->sizeKind == SizeKind::Absolute) {
-        r->resolved = r->absolute;
-        if (!r->resolved.depthOrArrayLayers)
-            r->resolved.depthOrArrayLayers = 1; // 0 layers means 1 everywhere else, see node_layers()
+        r->resolvedDone = true;
+        r->resolved = { r->width, r->height, r->depthOrLayers };
         return r->resolved;
     }
     if (r->resolving) {
@@ -1631,6 +1647,7 @@ static WGPUExtent3D resolve_size(ResourceNode* r, RenderGraphStorage& s)
             "resource \"%.*s\" sits on a cyclic relativeTo chain. A relative size must "
             "eventually resolve against an absolutely sized resource.",
             RG_NAME(r->id));
+        // no memo here: this is the re-entrant frame, the outer one still owns r and memoizes it
         return WGPUExtent3D {};
     }
 
@@ -1640,16 +1657,18 @@ static WGPUExtent3D resolve_size(ResourceNode* r, RenderGraphStorage& s)
             "resource \"%.*s\" is SizeKind::Relative but names no resource to size against. "
             "set TextureDesc.relativeTo, or use SizeKind::Absolute.",
             RG_NAME(r->id));
+        r->resolvedDone = true;
         return r->resolved = WGPUExtent3D {};
     }
     r->resolving = true;
     WGPUExtent3D b = resolve_size(base, s);
     r->resolving = false;
-    uint32_t layers = r->absolute.depthOrArrayLayers ? r->absolute.depthOrArrayLayers : 1;
+    // only width and height scale, the layer count is the node's own
     // round, don't truncate. clamp to 1
     uint32_t w = (uint32_t)(b.width * r->scaleX + 0.5f);
     uint32_t h = (uint32_t)(b.height * r->scaleY + 0.5f);
-    return r->resolved = { w ? w : 1u, h ? h : 1u, layers };
+    r->resolvedDone = true;
+    return r->resolved = { w ? w : 1u, h ? h : 1u, r->depthOrLayers };
 }
 
 static void detect_transient_attachments(RenderGraphStorage& s)
@@ -1777,6 +1796,20 @@ static void compile_impl(RenderGraph* graph, bool enableAlias)
         if(r->handle.id < s.next_resource_id)
             s.byId[r->handle.id] = r;
     }
+
+    // expand the "0 means all remaining" mip/layer counts into concrete ones, once.
+    for (PassNode* p = s.m_passes; p; p = p->next)
+        for (uint32_t i = 0; i < p->accessCount; ++i) {
+            ResourceAccess& a = p->accesses[i];
+            const ResourceNode* r = s.byId[a.handle.id];
+            if (r->kind != ResourceKind::Texture)
+                continue;
+            if (!a.mipCount && a.baseMip < r->mipLevelCount)
+                a.mipCount = uint8_t(r->mipLevelCount - a.baseMip);
+            const uint32_t layers = node_layers(r);
+            if (!a.layerCount && a.baseLayer < layers)
+                a.layerCount = uint16_t(layers - a.baseLayer);
+        }
 
     WGPUTextureUsage* predTexUsage = s.m_allocator->alloc<WGPUTextureUsage>(s.next_resource_id);
     WGPUBufferUsage* predBufUsage = s.m_allocator->alloc<WGPUBufferUsage>(s.next_resource_id);
@@ -1941,9 +1974,7 @@ static void compile_impl(RenderGraph* graph, bool enableAlias)
         uint32_t passIdx = 0;
         for (PassNode* p = s.m_passes; p; p = p->next, ++passIdx) // m_passes == surviving (post-cull) passes
             for (uint32_t i = 0; i < p->accessCount; ++i) {
-                ResourceNode* r = s.byId[p->accesses[i].handle.id];
-                if (!r)
-                    continue;
+                ResourceNode* r = s.byId[p->accesses[i].handle.id]; // non-null: the handle backstop range-checked every access id
                 // transient-attachment bookkeeping: count live accesses and keep the last one
                 ++r->liveAccessCount;
                 r->soleAccess = &p->accesses[i];
@@ -1981,7 +2012,7 @@ static void compile_impl(RenderGraph* graph, bool enableAlias)
                 continue;
             push_error(s,
                 "resource \"%.*s\" resolves to a zero extent (%u x %u); a texture needs a non-zero width "
-                "and height. Check its TextureDesc.absolute, or the relativeTo base it scales against.",
+                "and height. Check its TextureDesc.width/height, or the relativeTo base it scales against.",
                 RG_NAME(r->id),
                 r->resolved.width,
                 r->resolved.height);
@@ -2070,7 +2101,7 @@ static void compile_impl(RenderGraph* graph, bool enableAlias)
                 slot = s.m_slotCount++;
                 PhysicalResource& ph = s.m_slots[slot];
                 ph.kind = r->kind;
-                ph.identity = r->id.name.data; // the member that opens the slot names it, see PhysicalResource
+                ph.identity = r->id.name.data; // the member that opens the slot names it
                 if (isBuf)
                     ph.bufferSize = r->bufferSize;
                 else
@@ -2098,12 +2129,7 @@ ErrorMessage* RenderGraph::compile(bool enableAlias)
     return get_errors();
 }
 
-static uint32_t node_layers(const ResourceNode* r)
-{
-    return (r->dimension == WGPUTextureDimension_2D) ? (r->resolved.depthOrArrayLayers ? r->resolved.depthOrArrayLayers : 1) : 1;
-}
-
-static uint32_t mip_dim(uint32_t v, uint32_t mip)
+static inline uint32_t mip_dim(uint32_t v, uint32_t mip)
 {
     v >>= mip;
     return v ? v : 1;
@@ -2116,8 +2142,8 @@ static void validate_cube_views(RenderGraphStorage& s)
             const ResourceAccess& a = p->accesses[i];
             if (a.viewDim != WGPUTextureViewDimension_Cube && a.viewDim != WGPUTextureViewDimension_CubeArray)
                 continue;
-            ResourceNode* r = s.byId[a.handle.id];
-            if (!r || r->kind != ResourceKind::Texture)
+            ResourceNode* r = s.byId[a.handle.id]; // non-null: the handle backstop range-checked every access id
+            if (r->kind != ResourceKind::Texture)
                 continue;
 
             if (a.type == AccessType::StorageRead || a.type == AccessType::StorageWrite) {
@@ -2130,8 +2156,16 @@ static void validate_cube_views(RenderGraphStorage& s)
                     "cube views require a 2D texture with 6 (cube) or 6*N (cube array) layers.", RG_NAME(p->id), RG_NAME(r->id));
                 continue;
             }
+            // WebGPU requires square cube faces. without this the device rejects the view with nothing
+            // naming the pass that asked for it.
+            if (r->resolved.width != r->resolved.height) {
+                push_error(s, "pass \"%.*s\": cube view of \"%.*s\" needs square faces but the texture is %u x %u. "
+                    "Use rg::texture_cube()/texture_cube_array(), which take a single size.",
+                    RG_NAME(p->id), RG_NAME(r->id), r->resolved.width, r->resolved.height);
+                continue;
+            }
             uint32_t layers = node_layers(r);
-            uint32_t layerCount = a.layerCount ? a.layerCount : (layers - a.baseLayer); // 0 == all remaining
+            uint32_t layerCount = a.layerCount;
             if (a.viewDim == WGPUTextureViewDimension_Cube && layerCount != 6)
                 push_error(s, "pass \"%.*s\": cube view of \"%.*s\" covers %u layer(s); a cube view needs exactly 6. "
                     "Use ViewRange.layerCount = 6 (e.g. rg::cube()).", RG_NAME(p->id), RG_NAME(r->id), layerCount);
@@ -2170,9 +2204,7 @@ static void validate_render_passes(RenderGraphStorage& s)
 
         for (uint32_t i = 0; i < p->accessCount; ++i) {
             const ResourceAccess& a = p->accesses[i];
-            ResourceNode* r = s.byId[a.handle.id];
-            if (!r)
-                continue;
+            ResourceNode* r = s.byId[a.handle.id]; // non-null: the handle backstop range-checked every access id
             const Att t { &a, r };
             if (a.type == AccessType::ColorAttachment && colorCount < kMaxColorAttachments)
                 color[colorCount++] = t;
@@ -2281,16 +2313,17 @@ static void validate_render_passes(RenderGraphStorage& s)
 }
 
 // true for the access types whose declared BufferRange ctx.bind() applies
-static bool is_bind_access(AccessType t) { return t == AccessType::Uniform || t == AccessType::StorageRead || t == AccessType::StorageWrite; }
+static inline bool is_bind_access(AccessType t)
+{
+    return t == AccessType::Uniform || t == AccessType::StorageRead || t == AccessType::StorageWrite;
+}
 
 static void validate_access_ranges(RenderGraphStorage& s)
 {
     for (PassNode* p = s.m_passes; p; p = p->next)
         for (uint32_t i = 0; i < p->accessCount; ++i) {
             const ResourceAccess& a = p->accesses[i];
-            ResourceNode* r = s.byId[a.handle.id];
-            if (!r)
-                continue;
+            ResourceNode* r = s.byId[a.handle.id]; // non-null: the handle backstop range-checked every access id
 
             if (r->kind == ResourceKind::Texture) {
                 const uint32_t mips = r->mipLevelCount;
@@ -2305,11 +2338,12 @@ static void validate_access_ranges(RenderGraphStorage& s)
                         RG_NAME(p->id), RG_NAME(r->id), (uint32_t)a.baseLayer, layers);
                     continue;
                 }
-                // a count of 0 means all remaining, so only an explicit count can overrun.
-                if (a.mipCount && uint32_t(a.baseMip) + a.mipCount > mips)
+                // both counts were expanded in compile_impl, and the base checks above already returned for
+                // the one case that leaves them at 0
+                if (uint32_t(a.baseMip) + a.mipCount > mips)
                     push_error(s, "pass \"%.*s\": resource \"%.*s\" declares a view of %u mip(s) from mip %u but has %u mip(s).",
                         RG_NAME(p->id), RG_NAME(r->id), (uint32_t)a.mipCount, (uint32_t)a.baseMip, mips);
-                if (a.layerCount && uint32_t(a.baseLayer) + a.layerCount > layers)
+                if (uint32_t(a.baseLayer) + a.layerCount > layers)
                     push_error(s, "pass \"%.*s\": resource \"%.*s\" declares a view of %u layer(s) from layer %u but has %u layer(s).",
                         RG_NAME(p->id), RG_NAME(r->id), (uint32_t)a.layerCount, (uint32_t)a.baseLayer, layers);
                 continue;
@@ -2359,9 +2393,9 @@ static Subview** find_subview_list(GraphAllocator* a, WGPUTexture tex)
 
 static ViewKey view_signature_for(const ResourceNode* r, const ResourceAccess& a)
 {
-    uint32_t layers = node_layers(r);
-    uint32_t mipCount = a.mipCount ? a.mipCount : (r->mipLevelCount - a.baseMip);
-    uint32_t layerCount = a.layerCount ? a.layerCount : (layers - a.baseLayer);
+    // counts arrive expanded from compile_impl, so there is no "0 means all remaining" arm left here
+    uint32_t mipCount = a.mipCount;
+    uint32_t layerCount = a.layerCount;
     WGPUTextureViewDimension dim = a.viewDim;
     if (dim == WGPUTextureViewDimension_Undefined)
         dim = default_view_dim(r, layerCount);
@@ -2452,15 +2486,13 @@ static const ResourceAccess* find_bind_access(PassNode* pass, ResourceHandle h)
 
 static WGPUExtent3D copy_extent_for(RenderGraph* graph, PassNode* pass, ResourceHandle h, bool wantDst)
 {
-    Q_ASSERT(h.kind == ResourceKind::Texture);
-    ResourceNode* r = find_node(graph, h);
-    Q_ASSERT(r != nullptr && "failed to find node! Handle is 0 or from another graph");
+    ResourceNode* r = node_for(graph, h, ResourceKind::Texture);
     const ResourceAccess* a = find_copy_access(pass, h, wantDst, "copy_extent: no matching copy declared with this handle in this pass");
     uint32_t depth;
     if (r->dimension == WGPUTextureDimension_3D)
-        depth = mip_dim(r->resolved.depthOrArrayLayers, a->baseMip); // baseLayer is 0 here, node_layers() reports 1 for 3D so validate_access_ranges rejects any other
+        depth = mip_dim(r->resolved.depthOrArrayLayers, a->baseMip);
     else
-        depth = a->layerCount ? a->layerCount : (node_layers(r) - a->baseLayer); // 0 == all remaining
+        depth = a->layerCount; // expanded in compile_impl
     return WGPUExtent3D { mip_dim(r->resolved.width, a->baseMip), mip_dim(r->resolved.height, a->baseMip), depth };
 }
 
@@ -2481,15 +2513,10 @@ bool PassContext::history_valid_impl(ResourceHandle prev) const
 
 WGPUTextureView PassContext::view(TextureHandle h) const
 {
-    Q_ASSERT(h.id != 0);
-    Q_ASSERT(h.kind == ResourceKind::Texture && "ctx.view: only textures can create a view");
     Q_ASSERT(pass);
-    ResourceNode* r = find_node(graph, h);
-    Q_ASSERT(r != nullptr && "failed to find node! Handle is 0 or from another graph");
+    ResourceNode* r = node_for(graph, h, ResourceKind::Texture);
     if (!r)
-    {
         return {};
-    }
     Q_ASSERT(find_pass_access(pass, h) && "ctx.view: resource not declared as an access in this pass's setup");
     if (!r->texture)
         return r->view;
@@ -2515,14 +2542,14 @@ WGPUTextureView PassContext::view(TextureHandle h) const
 }
 
 
-static bool subres_declared(const PassNode* pass, const ResourceNode* r, ResourceHandle h, uint32_t mip, uint32_t layer)
+static bool subres_declared(const PassNode* pass, ResourceHandle h, uint32_t mip, uint32_t layer)
 {
     for (uint32_t i = 0; i < pass->accessCount; ++i) {
         const ResourceAccess& a = pass->accesses[i];
         if (a.handle.id != h.id)
             continue;
-        uint32_t mipEnd = a.mipCount ? a.baseMip + a.mipCount : r->mipLevelCount;
-        uint32_t layerEnd = a.layerCount ? a.baseLayer + a.layerCount : node_layers(r);
+        uint32_t mipEnd = a.baseMip + a.mipCount; // expanded in compile_impl
+        uint32_t layerEnd = a.baseLayer + a.layerCount;
         if (mip >= a.baseMip && mip < mipEnd && layer >= a.baseLayer && layer < layerEnd)
             return true;
     }
@@ -2531,14 +2558,10 @@ static bool subres_declared(const PassNode* pass, const ResourceNode* r, Resourc
 
 WGPUTextureView PassContext::view(TextureHandle h, uint32_t mip, uint32_t layer) const
 {
-    Q_ASSERT(h.id != 0);
-    Q_ASSERT(h.kind == ResourceKind::Texture && "ctx.view: only textures can create a view");
     Q_ASSERT(pass);
-    ResourceNode* r = find_node(graph, h);
-    Q_ASSERT(r != nullptr && "failed to find node! Handle is 0 or from another graph");
-    if (!r) {
+    ResourceNode* r = node_for(graph, h, ResourceKind::Texture);
+    if (!r)
         return {};
-    }
     Q_ASSERT(find_pass_access(pass, h) && "ctx.view: resource not declared as an access in this pass's setup");
     if (!r->texture) { // imported: the caller-owned view spans the whole resource
         Q_ASSERT(mip == 0 && layer == 0 && "subresource selection on an imported texture is ignored (caller owns the view)");
@@ -2546,7 +2569,7 @@ WGPUTextureView PassContext::view(TextureHandle h, uint32_t mip, uint32_t layer)
     }
     Q_ASSERT(mip < r->mipLevelCount && "ctx.view: mip past the texture's mip count");
     Q_ASSERT(layer < node_layers(r) && "ctx.view: layer past the texture's layer count");
-    Q_ASSERT(subres_declared(pass, r, h, mip, layer) && "ctx.view: mip/layer outside every range this pass declared on the resource");
+    Q_ASSERT(subres_declared(pass, h, mip, layer) && "ctx.view: mip/layer outside every range this pass declared on the resource");
     ViewKey key {
         .format = r->format,
         .dimension = default_view_dim(r, 1), // single-layer subview -> never the 2DArray arm
@@ -2561,26 +2584,18 @@ WGPUTextureView PassContext::view(TextureHandle h, uint32_t mip, uint32_t layer)
 
 WGPUTexture PassContext::texture(TextureHandle h) const
 {
-    Q_ASSERT(h.id != 0);
-    Q_ASSERT(h.kind == ResourceKind::Texture);
-    ResourceNode* r = find_node(graph, h);
-    Q_ASSERT(r != nullptr && "failed to find node! Handle is 0 or from another graph");
-    if (!r) {
+    ResourceNode* r = node_for(graph, h, ResourceKind::Texture);
+    if (!r)
         return {};
-    }
     Q_ASSERT(find_pass_access(pass, h) && "ctx.texture: resource not declared as an access in this pass's setup");
     return r->texture;
 }
 
 WGPUBuffer PassContext::buffer(BufferHandle h) const
 {
-    Q_ASSERT(h.id != 0);
-    Q_ASSERT(h.kind == ResourceKind::Buffer);
-    ResourceNode* r = find_node(graph, h);
-    Q_ASSERT(r != nullptr && "failed to find node! Handle is 0 or from another graph");
-    if (!r) {
+    ResourceNode* r = node_for(graph, h, ResourceKind::Buffer);
+    if (!r)
         return {};
-    }
     Q_ASSERT(find_pass_access(pass, h) && "ctx.buffer: resource not declared as an access in this pass's setup");
     Q_ASSERT(r->buffer && "ctx.buffer(): resource declared but never realized (no live writer)");
     return r->buffer;
@@ -2590,8 +2605,7 @@ WGPUBindGroupEntry PassContext::bind(uint32_t binding, ResourceHandle h) const
 {
     if (h.kind == ResourceKind::Texture)
         return webgpu::bind(binding, view(TextureHandle { h }));
-    ResourceNode* r = find_node(graph, h);
-    Q_ASSERT(r != nullptr && "failed to find node! Handle is 0 or from another graph");
+    ResourceNode* r = node_for(graph, h, ResourceKind::Buffer);
     const ResourceAccess* a = find_bind_access(pass, h);
     if (a && a->bufSize)
         return webgpu::bind(binding, buffer(BufferHandle { h }), a->bufOffset, a->bufSize);
@@ -2605,25 +2619,17 @@ WGPUBindGroupEntry PassContext::bind(uint32_t binding, TextureHandle h, uint32_t
 
 WGPUExtent3D PassContext::texture_size(TextureHandle h) const
 {
-    Q_ASSERT(h.id != 0);
-    Q_ASSERT(h.kind == ResourceKind::Texture);
-    ResourceNode* r = find_node(graph, h);
-    Q_ASSERT(r != nullptr && "failed to find node! Handle is 0 or from another graph");
-    if (!r) {
+    ResourceNode* r = node_for(graph, h, ResourceKind::Texture);
+    if (!r)
         return {};
-    }
     return r->resolved;
 }
 
 WGPUExtent3D PassContext::texture_size(TextureHandle h, uint32_t mip) const
 {
-    Q_ASSERT(h.id != 0);
-    Q_ASSERT(h.kind == ResourceKind::Texture);
-    ResourceNode* r = find_node(graph, h);
-    Q_ASSERT(r != nullptr && "failed to find node! Handle is 0 or from another graph");
-    if (!r) {
+    ResourceNode* r = node_for(graph, h, ResourceKind::Texture);
+    if (!r)
         return {};
-    }
     Q_ASSERT(mip < (r->mipLevelCount ? r->mipLevelCount : 1) && "ctx.texture_size: mip past the texture's mip count");
     uint32_t d = r->resolved.depthOrArrayLayers ? r->resolved.depthOrArrayLayers : 1;
     if (r->dimension == WGPUTextureDimension_3D)
@@ -2633,52 +2639,36 @@ WGPUExtent3D PassContext::texture_size(TextureHandle h, uint32_t mip) const
 
 WGPUTextureFormat PassContext::format(TextureHandle h) const
 {
-    Q_ASSERT(h.id != 0);
-    Q_ASSERT(h.kind == ResourceKind::Texture);
-    ResourceNode* r = find_node(graph, h);
-    Q_ASSERT(r != nullptr && "failed to find node! Handle is 0 or from another graph");
-    if (!r) {
+    ResourceNode* r = node_for(graph, h, ResourceKind::Texture);
+    if (!r)
         return WGPUTextureFormat_Undefined;
-    }
     Q_ASSERT(r->format != WGPUTextureFormat_Undefined && "ctx.format: imported texture without a format; pass it to import_texture");
     return r->format;
 }
 
 uint32_t PassContext::mip_count(TextureHandle h) const
 {
-    Q_ASSERT(h.id != 0);
-    Q_ASSERT(h.kind == ResourceKind::Texture);
-    ResourceNode* r = find_node(graph, h);
-    Q_ASSERT(r != nullptr && "failed to find node! Handle is 0 or from another graph");
-    if (!r) {
+    ResourceNode* r = node_for(graph, h, ResourceKind::Texture);
+    if (!r)
         return 0;
-    }
     Q_ASSERT(r->mipLevelCount && "ctx.mip_count: mip count is 0");
     return r->mipLevelCount;
 }
 
 uint32_t PassContext::sample_count(TextureHandle h) const
 {
-    Q_ASSERT(h.id != 0);
-    Q_ASSERT(h.kind == ResourceKind::Texture);
-    ResourceNode* r = find_node(graph, h);
-    Q_ASSERT(r != nullptr && "failed to find node! Handle is 0 or from another graph");
-    if (!r) {
+    ResourceNode* r = node_for(graph, h, ResourceKind::Texture);
+    if (!r)
         return 0;
-    }
     Q_ASSERT(r->sampleCount && "ctx.sample_count: sample count is 0");
     return r->sampleCount;
 }
 
 uint64_t PassContext::buffer_size(BufferHandle h) const
 {
-    Q_ASSERT(h.id != 0);
-    Q_ASSERT(h.kind == ResourceKind::Buffer);
-    ResourceNode* r = find_node(graph, h);
-    Q_ASSERT(r != nullptr && "failed to find node! Handle is 0 or from another graph");
-    if (!r) {
+    ResourceNode* r = node_for(graph, h, ResourceKind::Buffer);
+    if (!r)
         return {};
-    }
     return r->bufferSize;
 }
 
@@ -2698,10 +2688,7 @@ PassContext::BufferCopyInfo PassContext::buffer_copy_info(BufferHandle src, Buff
 
 static WGPUTexelCopyTextureInfo copy_texture_info(RenderGraph* graph, PassNode* pass, ResourceHandle h, bool wantDst, WGPUOrigin3D origin, WGPUTextureAspect aspect)
 {
-    Q_ASSERT(h.id != 0);
-    Q_ASSERT(h.kind == ResourceKind::Texture);
-    ResourceNode* r = find_node(graph, h);
-    Q_ASSERT(r != nullptr && "failed to find node! Handle is 0 or from another graph");
+    ResourceNode* r = node_for(graph, h, ResourceKind::Texture);
     Q_ASSERT(r->texture
         && "copy_*_info: imported texture has no backing WGPUTexture; pass the WGPUTexture to "
            "import_texture to enable copies, or copy via a render-pass blit instead");
@@ -3010,9 +2997,7 @@ void RenderGraph::execute(WGPUDevice device, WGPUQueue queue, WGPUCommandEncoder
 
             for (uint32_t i = 0; i < p->accessCount; ++i) {
                 const ResourceAccess& a = p->accesses[i];
-                ResourceNode* r = find_node(this, a.handle);
-                if (!r)
-                    continue;
+                ResourceNode* r = find_node(this, a.handle); // non-null: compile() succeeded, so its handle backstop passed
                 if (a.type == AccessType::ColorAttachment && a.colorIndex < kMaxColorAttachments) { // color() asserted range; release backstop
                     color[a.colorIndex] = WGPURenderPassColorAttachment {
                         .view = attach_view(r, a),

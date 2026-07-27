@@ -598,6 +598,7 @@ struct ResourceNode {
     bool history : 1 {}; // .curr written this frame, read next
     bool historyValid : 1 {}; // false if the entry was recreated this frame
     bool resolving : 1 {}; // on the relativeTo recursion stack -> re-entry is a cycle
+    bool resolvedDone : 1 {}; // resolve_size()
     bool hasWriter : 1 {}; // phase-4 aliasing eligibility: some pass writes this
     bool firstDefines : 1 {}; // phase-4 aliasing eligibility: first touch fully overwrites the occupant
     bool transientAttachment : 1 {}; // graph-owned attachment that never leaves the GPU
@@ -615,7 +616,9 @@ struct ResourceNode {
     float scaleX = 1.0f;
     float scaleY = 1.0f;
     ResourceHandle relativeToHandle {};
-    WGPUExtent3D absolute = WGPU_EXTENT_3D_INIT;
+    uint32_t width = 0; // Absolute only, Relative takes its width/height from the base
+    uint32_t height = 0;
+    uint32_t depthOrLayers = 1; // both SizeKinds, and set for imports too, so node_layers works before phase 3
     uint32_t mipLevelCount = 1; // > 1 = mip chain, per-mip views built at bind/attach time
     uint32_t sampleCount = 1; // > 1 = MSAA
 

@@ -280,14 +280,88 @@ private:
 struct TextureDesc {
     WGPUTextureDimension dimension = WGPUTextureDimension_Undefined; // set 2D or 3D explicitly, Undefined is not normalized. 1D is unsupported.
     WGPUTextureFormat format = WGPUTextureFormat_Undefined; // required, there is no default
-    SizeKind sizeKind = SizeKind::Absolute; // picks between absolute and the scale/relativeTo pair
+    SizeKind sizeKind = SizeKind::Absolute; // picks between width/height and the scale/relativeTo pair
     float scaleX = 1.0f; // Relative only: factor of relativeTo's size
-    float scaleY = 1.0f; // Relative only
+    float scaleY = 1.0f; // Relative only. there is no scaleZ, depthOrLayers is taken as-is under both SizeKinds
     TextureHandle relativeTo {}; // Relative only: the texture whose size is scaled
-    WGPUExtent3D absolute = WGPU_EXTENT_3D_INIT; // Absolute only: size in texels, depthOrArrayLayers is the layer count for 2D
+    uint32_t width = 0; // Absolute only: size in texels
+    uint32_t height = 0; // Absolute only
+    uint32_t depthOrLayers = 1; // both SizeKinds: array layers for a 2D texture, depth for a 3D one
     uint32_t mipLevelCount = 1; // full chain must be spelled out, there is no 0 = all
     uint32_t sampleCount = 1; // 1 or 4 (WebGPU 1.0 limit)
+
+    // chainable tail options, each returning a modified copy. these keep the factories below to the
+    // fields every texture needs, instead of one overload per combination.
+    constexpr TextureDesc mips(uint32_t count) const
+    {
+        TextureDesc d = *this;
+        d.mipLevelCount = count;
+        return d;
+    }
+    constexpr TextureDesc samples(uint32_t count) const
+    {
+        TextureDesc d = *this;
+        d.sampleCount = count;
+        return d;
+    }
+    // array layers for a 2D texture, depth for a 3D one. mainly for the relative arm, the absolute
+    // factories take it directly.
+    constexpr TextureDesc layers(uint32_t count) const
+    {
+        TextureDesc d = *this;
+        d.depthOrLayers = count;
+        return d;
+    }
 };
+
+// TextureDesc factories:
+
+// 2D, absolute size
+constexpr TextureDesc texture_2d(WGPUTextureFormat format, uint32_t width, uint32_t height)
+{
+    return TextureDesc { .dimension = WGPUTextureDimension_2D, .format = format, .width = width, .height = height };
+}
+
+// 2D array
+constexpr TextureDesc texture_2d_array(WGPUTextureFormat format, uint32_t width, uint32_t height, uint32_t layers)
+{
+    return TextureDesc { .dimension = WGPUTextureDimension_2D, .format = format, .width = width, .height = height, .depthOrLayers = layers };
+}
+
+// 6 square layers, sampled with rg::cube()
+constexpr TextureDesc texture_cube(WGPUTextureFormat format, uint32_t size)
+{
+    return texture_2d_array(format, size, size, 6);
+}
+
+// 6*cubes square layers, sampled with rg::cube_array(cubes)
+constexpr TextureDesc texture_cube_array(WGPUTextureFormat format, uint32_t size, uint32_t cubes)
+{
+    return texture_2d_array(format, size, size, 6 * cubes);
+}
+
+// 3D volume. depth is taken as-is and never scales
+constexpr TextureDesc texture_3d(WGPUTextureFormat format, uint32_t width, uint32_t height, uint32_t depth)
+{
+    return TextureDesc { .dimension = WGPUTextureDimension_3D, .format = format, .width = width, .height = height, .depthOrLayers = depth };
+}
+
+// sized off another texture. width and height scale, depthOrLayers does not!
+constexpr TextureDesc texture_relative(WGPUTextureFormat format, TextureHandle base, float scaleX, float scaleY)
+{
+    return TextureDesc { .dimension = WGPUTextureDimension_2D,
+        .format = format,
+        .sizeKind = SizeKind::Relative,
+        .scaleX = scaleX,
+        .scaleY = scaleY,
+        .relativeTo = base };
+}
+
+// uniform scale
+constexpr TextureDesc texture_relative(WGPUTextureFormat format, TextureHandle base, float scale)
+{
+    return texture_relative(format, base, scale, scale);
+}
 
 struct BufferDesc {
     uint64_t size {}; // bytes
