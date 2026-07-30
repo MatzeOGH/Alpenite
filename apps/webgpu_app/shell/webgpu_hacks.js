@@ -42,44 +42,48 @@ class WeBIGeoHacks {
   }
 
   async checkWebGPU() {
-    this.webgpuAvailable = true;
+    this.webgpuAvailable = false;
     this.webgpuTimingsAvailable = false;
 
-    if (navigator.gpu === undefined) {
-      this.webgpuAvailable = false;
-      return;
+    if (navigator.gpu === undefined)
+      return null;
+
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    if (!adapter)
+      return null;
+
+    const requiredFeatures = [...adapter.features];
+    const requiredLimits = {};
+    for (const key of Object.getOwnPropertyNames(Object.getPrototypeOf(adapter.limits))) {
+      const value = adapter.limits[key];
+      if (typeof value === 'number') requiredLimits[key] = value;
     }
 
-    const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) {
-      this.webgpuAvailable = false;
-      return;
-    }
     let device = null;
-    if (adapter.features.has('timestamp-query')) {
-      try {
-        device = await adapter.requestDevice({ requiredFeatures: ['timestamp-query'] });
-      } catch (e) {
-      }
+    try {
+      device = await adapter.requestDevice({ requiredFeatures, requiredLimits });
+    } catch (e) {
+      console.error('WebGPU requestDevice failed:', e);
+      return null;
     }
-    if (!device) {
-      try {
-        device = await adapter.requestDevice();
-      } catch (e) {
-      }
-    }
-    if (!device) {
-      this.webgpuAvailable = false;
-      return;
+    if (!device)
+      return null;
+
+    this.gpuAdapter = adapter;
+    this.gpuDevice = device;
+    this.webgpuAvailable = true;
+
+    if (device.features.has('timestamp-query')) {
+      const commandEncoder = device.createCommandEncoder();
+      this.webgpuTimingsAvailable = typeof commandEncoder.writeTimestamp !== 'undefined';
     }
 
-    if (!device.features.has('timestamp-query'))
-      return;
-
-    const commandEncoder = device.createCommandEncoder();
-    if (typeof commandEncoder.writeTimestamp === 'undefined')
-      return;
-    this.webgpuTimingsAvailable = true;
+    return {
+      adapter,
+      device,
+      timingsAvailable: this.webgpuTimingsAvailable,
+      preferredFormat: navigator.gpu.getPreferredCanvasFormat(),
+    };
   }
 
   uploadFilesWithDialog(filter, tag, multiple) {

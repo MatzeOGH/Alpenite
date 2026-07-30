@@ -30,6 +30,7 @@
 #ifdef __EMSCRIPTEN__
 #include "util/WebInterop.h"
 #include <emscripten/emscripten.h>
+#include <emscripten/val.h>
 #else
 #include "nucleus/utils/image_loader.h"
 #if defined(_WIN32) || defined(_WIN64)
@@ -67,6 +68,10 @@ void App::init_window()
 {
     // Initializes SDL2 video subsystem
     SDL_SetMainReady();
+#ifdef __EMSCRIPTEN__
+    // ASYNCIFY is disabled, stops SDL from calling emscripten_sleep internally
+    SDL_SetHint(SDL_HINT_EMSCRIPTEN_ASYNCIFY, "0");
+#endif
     if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0) {
         qFatal("Could not initialize SDL2 video subsystem! SDL_Error: %s", SDL_GetError());
     }
@@ -174,6 +179,10 @@ void App::poll_events()
         }
         m_input_mapper->on_sdl_event(events[i]);
     }
+
+#ifdef __EMSCRIPTEN__
+    m_webgpu_window->update_position_readback(m_input_mapper->current_pointer_position());
+#endif
 
     wgpuInstanceProcessEvents(m_instance);
 }
@@ -546,15 +555,27 @@ void App::configure_surface(uint32_t width, uint32_t height)
 {
     qDebug() << "configuring surface...";
 
+#ifdef __EMSCRIPTEN__
+    emscripten::val preferred_format = emscripten::val::module_property("webgpuPreferredFormat");
+    const std::string format = preferred_format.isUndefined() ? "bgra8unorm" : preferred_format.as<std::string>();
+    if (format == "rgba8unorm") {
+        m_surface_texture_format = WGPUTextureFormat_RGBA8Unorm;
+    } else if (format == "bgra8unorm") {
+        m_surface_texture_format = WGPUTextureFormat_BGRA8Unorm;
+    } else {
+        qWarning() << "Unknown webgpuPreferredFormat from JS:" << format.c_str() << "- falling back to bgra8unorm";
+        m_surface_texture_format = WGPUTextureFormat_BGRA8Unorm;
+    }
+#else
     // from Learn WebGPU C++ tutorial
-
     WGPUSurfaceCapabilities surface_capabilities {};
     wgpuSurfaceGetCapabilities(m_surface, m_adapter, &surface_capabilities);
     if (surface_capabilities.formatCount < 1) {
         qFatal() << "WebGPU surface formatCount is 0 - must support at least one format";
     }
-
     m_surface_texture_format = surface_capabilities.formats[0];
+#endif
+
     WGPUSurfaceConfiguration config = {};
     config.nextInChain = nullptr;
     config.width = width;
@@ -615,9 +636,11 @@ void App::webgpu_create_context()
     dawnToggles.disabledToggleCount = 0;
 #endif
 
+#ifndef __EMSCRIPTEN__
     const auto timed_wait_feature = WGPUInstanceFeatureName_TimedWaitAny;
     m_instance_desc.requiredFeatureCount = 1;
     m_instance_desc.requiredFeatures = &timed_wait_feature;
+#endif
 
     m_instance = wgpuCreateInstance(&m_instance_desc);
 
@@ -633,6 +656,31 @@ void App::webgpu_create_context()
     }
     qInfo() << "Got surface: " << m_surface;
 
+    m_webgpu_window = std::make_unique<webgpu_engine::Window>();
+
+    std::vector<WGPUFeatureName> requiredFeatures;
+    requiredFeatures.push_back(WGPUFeatureName_TimestampQuery);
+    requiredFeatures.push_back(WGPUFeatureName_TextureCompressionBC);
+    requiredFeatures.push_back(WGPUFeatureName_TextureCompressionBCSliced3D);
+
+#ifdef __EMSCRIPTEN__
+    qDebug() << "Importing WebGPU device from JS...";
+    m_device = emscripten_webgpu_get_device();
+    if (!m_device) {
+        qFatal("No preinitialized WebGPU device provided by JS!");
+    }
+    m_adapter = nullptr;
+    qInfo() << "Imported device" << m_device << "from JS";
+
+    WGPULimits device_limits {};
+    wgpuDeviceGetLimits(m_device, &device_limits);
+    WGPULimits unused_required {};
+    m_webgpu_window->update_required_gpu_limits(unused_required, device_limits);
+    for (const auto feature : requiredFeatures) {
+        if (!wgpuDeviceHasFeature(m_device, feature))
+            qWarning() << "JS-created WebGPU device is missing requested feature" << int(feature);
+    }
+#else
     qDebug() << "Requesting adapter...";
     WGPURequestAdapterOptions adapter_opts {};
     adapter_opts.powerPreference = WGPUPowerPreference_HighPerformance;
@@ -642,8 +690,6 @@ void App::webgpu_create_context()
         qFatal("Could not get adapter!");
     }
     qInfo() << "Got adapter: " << m_adapter;
-
-    m_webgpu_window = std::make_unique<webgpu_engine::Window>();
 
     qDebug() << "Requesting device...";
     WGPULimits required_limits {};
@@ -662,11 +708,6 @@ void App::webgpu_create_context()
 
     // Let the engine change the required limits
     m_webgpu_window->update_required_gpu_limits(required_limits, supported_limits);
-
-    std::vector<WGPUFeatureName> requiredFeatures;
-    requiredFeatures.push_back(WGPUFeatureName_TimestampQuery);
-    requiredFeatures.push_back(WGPUFeatureName_TextureCompressionBC);
-    requiredFeatures.push_back(WGPUFeatureName_TextureCompressionBCSliced3D);
 
     WGPUDeviceDescriptor device_desc {};
     device_desc.label = WGPUStringView { .data = "webigeo device", .length = WGPU_STRLEN };
@@ -687,16 +728,14 @@ void App::webgpu_create_context()
         .userdata1 = nullptr,
         .userdata2 = nullptr,
     };
-
-#ifndef __EMSCRIPTEN__
     device_desc.nextInChain = &dawnToggles.chain;
-#endif
 
     m_device = webgpu::requestDeviceSync(m_instance, m_adapter, device_desc);
     if (!m_device) {
         qFatal("Could not get device!");
     }
     qInfo() << "Got device: " << m_device;
+#endif
 
     webgpu::checkForTimingSupport(m_adapter, m_device);
 

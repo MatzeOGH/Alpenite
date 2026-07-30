@@ -53,9 +53,10 @@
 
       const loading_status = document.querySelector('#loadingstatus');
       const hacks = new WeBIGeoHacks(webgpu_canvas, log_wrapper, log_element, spinner, loading_status);
-      await hacks.checkWebGPU();
 
-      if (!hacks.webgpuAvailable) {
+      window.__webgpuReady = hacks.checkWebGPU();
+
+      if (navigator.gpu === undefined) {
         console.error('WebGPU is not supported in this browser');
         status.innerHTML = 'Error: WebGPU is not supported in this browser!';
         return;
@@ -85,9 +86,21 @@
             entryFunction: window.webgpu_app_entry,
             containerElements: [screen],
           },
-          webgpuTimingsAvailable: (() => {
-            return hacks.webgpuTimingsAvailable;
-          })(),
+          preRun: [(Module) => {
+            Module.addRunDependency('webgpu-device');
+            window.__webgpuReady.then(gpu => {
+              if (!gpu) {
+                console.error('WebGPU device initialization failed');
+                status.innerHTML = 'Error: could not initialize WebGPU!';
+                showUi(spinner);
+                return;
+              }
+              Module.preinitializedWebGPUDevice = gpu.device;
+              Module.webgpuPreferredFormat = gpu.preferredFormat;
+              Module.webgpuTimingsAvailable = gpu.timingsAvailable ? 1 : 0;
+              Module.removeRunDependency('webgpu-device');
+            });
+          }],
           print: (function () {
             return (...args) => {
               var text = args.join(' ');

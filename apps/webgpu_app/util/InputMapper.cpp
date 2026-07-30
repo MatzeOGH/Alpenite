@@ -114,6 +114,21 @@ InputMapper::InputMapper(QObject* parent, nucleus::camera::Controller* camera_co
     }
 }
 
+glm::vec2 InputMapper::current_pointer_position() const
+{
+    glm::vec2 sum(0.0f);
+    int count = 0;
+    for (const auto& [id, point] : m_touchmap) {
+        if (point.state == nucleus::event_parameter::TouchPointReleased)
+            continue;
+        sum += point.position;
+        ++count;
+    }
+    if (count > 0)
+        return sum / float(count);
+    return m_mouse.point.position;
+}
+
 void InputMapper::on_sdl_event(const SDL_Event& event)
 {
     // Check if it's a keyboard event

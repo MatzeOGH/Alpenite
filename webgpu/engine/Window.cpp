@@ -32,6 +32,7 @@
 #include <webgpu/webgpu.h>
 
 #include <array>
+#include <cmath>
 
 namespace webgpu_engine {
 
@@ -354,6 +355,11 @@ webgpu::rg::TextureHandle Window::paint(webgpu::rg::RenderGraph* rg, bool use_re
 
 glm::vec4 Window::synchronous_position_readback(const glm::dvec2& ndc)
 {
+#ifdef __EMSCRIPTEN__
+    if (ndc.x == 0.0 && ndc.y == 0.0)
+        return m_readback_ring.center_last;
+    return m_readback_ring.cursor_last;
+#else
     if (m_position_readback_buffer->map_state() == WGPUBufferMapState_Unmapped) {
         // A little bit silly, but we have to transform it back to device coordinates
         glm::uvec2 device_coordinates = { (ndc.x + 1) * 0.5 * m_swapchain_size.x, (1 - (ndc.y + 1) * 0.5) * m_swapchain_size.y };
@@ -376,7 +382,99 @@ glm::vec4 Window::synchronous_position_readback(const glm::dvec2& ndc)
 
     // qDebug() << "Position:" << glm::to_string(m_last_position_readback);
     return m_last_position_readback;
+#endif
 }
+
+#ifdef __EMSCRIPTEN__
+void Window::update_position_readback(const glm::vec2& pointer_screen_position)
+{
+    if (!m_gbuffer || m_swapchain_size.x < 16.0f || m_swapchain_size.y < 1.0f)
+        return;
+
+    if (pointer_screen_position == m_last_readback_pointer && !m_readback_camera_dirty)
+        return;
+
+    glm::dvec2 pointer_ndc = (glm::dvec2(pointer_screen_position) / glm::dvec2(m_swapchain_size)) * 2.0 - 1.0;
+    pointer_ndc.y = -pointer_ndc.y;
+    if (issue_position_readback(pointer_ndc)) {
+        m_last_readback_pointer = pointer_screen_position;
+        m_readback_camera_dirty = false;
+    }
+}
+
+bool Window::issue_position_readback(const glm::dvec2& cursor_ndc)
+{
+    ReadbackSlot* slot = nullptr;
+    for (ReadbackSlot& s : m_readback_ring.entries)
+        if (!s.pending) {
+            slot = &s;
+            break;
+        }
+    if (!slot)
+        return false; // every slot still in flight, try again next frame
+
+    auto to_device = [&](const glm::dvec2& ndc) {
+        const double x = glm::clamp((ndc.x + 1.0) * 0.5 * m_swapchain_size.x, 0.0, double(m_swapchain_size.x) - 16.0);
+        const double y = glm::clamp((1.0 - (ndc.y + 1.0) * 0.5) * m_swapchain_size.y, 0.0, double(m_swapchain_size.y) - 1.0);
+        return glm::uvec2(uint32_t(x), uint32_t(y));
+    };
+    const glm::uvec2 cursor_px = to_device(cursor_ndc);
+    const glm::uvec2 center_px = to_device(glm::dvec2(0.0, 0.0));
+
+    WGPUDevice device = m_context->webgpu_ctx().device();
+    WGPUTexture src = m_gbuffer->color_texture(1).handle();
+    WGPUBuffer dst = slot->buffer->handle();
+
+    WGPUCommandEncoderDescriptor enc_desc {};
+    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, &enc_desc);
+
+    auto copy_region = [&](glm::uvec2 px, uint64_t byte_offset) {
+        WGPUTexelCopyTextureInfo source {};
+        source.texture = src;
+        source.origin = WGPUOrigin3D { px.x, px.y, 0 };
+        source.aspect = WGPUTextureAspect_All;
+        WGPUTexelCopyBufferInfo destination {};
+        destination.buffer = dst;
+        destination.layout.offset = byte_offset;
+        destination.layout.bytesPerRow = 256; // 16 texels of RGBA32Float
+        destination.layout.rowsPerImage = 1;
+        WGPUExtent3D extent { 16, 1, 1 };
+        wgpuCommandEncoderCopyTextureToBuffer(encoder, &source, &destination, &extent);
+    };
+    copy_region(cursor_px, 0);
+    copy_region(center_px, 256);
+
+    WGPUCommandBufferDescriptor cmd_desc {};
+    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(encoder, &cmd_desc);
+    wgpuQueueSubmit(m_context->webgpu_ctx().queue(), 1, &cmd);
+    wgpuCommandBufferRelease(cmd);
+    wgpuCommandEncoderRelease(encoder);
+
+    slot->pending = true;
+    slot->cursor_target = &m_readback_ring.cursor_last;
+    slot->center_target = &m_readback_ring.center_last;
+
+    WGPUBufferMapCallbackInfo cb {};
+    cb.mode = WGPUCallbackMode_AllowSpontaneous;
+    cb.callback = [](WGPUMapAsyncStatus status, WGPUStringView, void* u1, void*) {
+        auto* slot = static_cast<ReadbackSlot*>(u1);
+        if (status == WGPUMapAsyncStatus_Success) {
+            const auto* p = static_cast<const glm::vec4*>(wgpuBufferGetConstMappedRange(slot->buffer->handle(), 0, 32 * sizeof(glm::vec4)));
+            if (p) {
+                if (p[0].w > 0.0f)
+                    *slot->cursor_target = p[0];
+                if (p[16].w > 0.0f)
+                    *slot->center_target = p[16];
+            }
+            wgpuBufferUnmap(slot->buffer->handle());
+        }
+        slot->pending = false;
+    };
+    cb.userdata1 = slot;
+    wgpuBufferMapAsync(dst, WGPUMapMode_Read, 0, 32 * sizeof(glm::vec4), cb);
+    return true;
+}
+#endif
 
 void Window::set_max_zoom_level(uint32_t max_zoom_level) { m_max_zoom_level = max_zoom_level; }
 
@@ -391,6 +489,10 @@ glm::dvec3 Window::position([[maybe_unused]] const glm::dvec2& normalised_device
     // If we read position directly no reconstruction is necessary
     // glm::dvec3 reconstructed = m_camera.position() + m_camera.ray_direction(normalised_device_coordinates) * (double)depth(normalised_device_coordinates);
     auto position = synchronous_position_readback(normalised_device_coordinates);
+#ifdef __EMSCRIPTEN__
+    if (position.w <= 0.0f)
+        return m_camera.position() + glm::normalize(m_camera.ray_direction(normalised_device_coordinates)) * 1000.0;
+#endif
     return m_camera.position() + glm::dvec3(position.x, position.y, position.z);
 }
 
@@ -420,6 +522,9 @@ void Window::update_camera([[maybe_unused]] const nucleus::camera::Definition& n
     cc->distance_scaling_factor = new_definition.distance_scale_factor();
     m_camera_config_ubo->update_gpu_data(m_context->webgpu_ctx().queue());
     m_camera = new_definition;
+#ifdef __EMSCRIPTEN__
+    m_readback_camera_dirty = true;
+#endif
 
     emit update_requested();
 }
@@ -444,6 +549,11 @@ void Window::create_buffers()
         = std::make_unique<webgpu::Buffer<uboCameraConfig>>(m_context->webgpu_ctx().device(), WGPUBufferUsage_CopyDst | WGPUBufferUsage_Uniform);
     m_position_readback_buffer = std::make_unique<webgpu::raii::RawBuffer<glm::vec4>>(
         m_context->webgpu_ctx().device(), WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead, 256 / sizeof(glm::vec4), "position readback buffer");
+#ifdef __EMSCRIPTEN__
+    for (ReadbackSlot& slot : m_readback_ring.entries)
+        slot.buffer = std::make_unique<webgpu::raii::RawBuffer<glm::vec4>>(
+            m_context->webgpu_ctx().device(), WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead, 2 * 256 / sizeof(glm::vec4), "position readback ring slot");
+#endif
 }
 
 void Window::create_bind_groups()

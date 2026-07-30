@@ -132,7 +132,6 @@ if (EMSCRIPTEN)
 
 
     target_link_options(webgpu PUBLIC
-    "-sASYNCIFY=1"
     "--use-port=sdl2"
     "--use-port=${ALP_DAWN_PORT_DIR}"
     )

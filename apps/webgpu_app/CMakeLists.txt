@@ -202,7 +202,7 @@ if (EMSCRIPTEN)
 
     # enables to append to EXPORTED_RUNTIME_METHODS which is overridden by Qt
     # see issue (https://bugreports.qt.io/browse/QTBUG-104882) and fix (https://codereview.qt-project.org/c/qt/qtbase/+/421733)
-    set_target_properties(webgpu_app PROPERTIES QT_WASM_EXTRA_EXPORTED_METHODS "ccall,cwrap")
+    set_target_properties(webgpu_app PROPERTIES QT_WASM_EXTRA_EXPORTED_METHODS "ccall,cwrap,addRunDependency,removeRunDependency")
 
     # Copy custom shell (name of file == name of target)
     # IMPORTANT: THIS WILL ONLY BE EXECUTED WHEN THE TARGET IS ACTUALLY REBUILT

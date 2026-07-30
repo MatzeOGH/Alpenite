@@ -40,6 +40,8 @@ public:
     InputMapper(QObject* parent, nucleus::camera::Controller* camera_controller, ImGuiManager* gui_manager, ViewportSizeCallback vp_size_callback);
     void on_sdl_event(const SDL_Event& event);
 
+    [[nodiscard]] glm::vec2 current_pointer_position() const;
+
 signals:
     void key_pressed(QKeyCombination key);
     void key_released(QKeyCombination key);

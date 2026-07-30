@@ -39,6 +39,21 @@ struct RenderGraph;
 
 namespace webgpu_engine {
 
+#ifdef __EMSCRIPTEN__
+struct ReadbackSlot {
+    std::unique_ptr<webgpu::raii::RawBuffer<glm::vec4>> buffer; // texels [0..15] = cursor, [16..31] = centre
+    bool pending = false;
+    glm::vec4* cursor_target = nullptr;
+    glm::vec4* center_target = nullptr;
+};
+struct ReadbackRing {
+    static constexpr int kSlots = 4;
+    ReadbackSlot entries[kSlots];
+    glm::vec4 cursor_last = glm::vec4(0.0f);
+    glm::vec4 center_last = glm::vec4(0.0f);
+};
+#endif
+
 class Window : public nucleus::AbstractRenderWindow, public nucleus::camera::AbstractDepthTester {
     Q_OBJECT
 public:
@@ -66,6 +81,10 @@ public:
 
     void set_max_zoom_level(uint32_t max_zoom_level);
 
+#ifdef __EMSCRIPTEN__
+    void update_position_readback(const glm::vec2& cursor_screen_position);
+#endif
+
 public slots:
     void update_camera(const nucleus::camera::Definition& new_definition) override;
     void update_debug_scheduler_stats([[maybe_unused]] const QString& stats) override { }
@@ -80,7 +99,13 @@ signals:
 
 private:
     std::unique_ptr<webgpu::raii::RawBuffer<glm::vec4>> m_position_readback_buffer;
-    glm::vec4 m_last_position_readback;
+    glm::vec4 m_last_position_readback = glm::vec4(0.0f);
+#ifdef __EMSCRIPTEN__
+    ReadbackRing m_readback_ring;
+    glm::vec2 m_last_readback_pointer = glm::vec2(-1.0f);
+    bool m_readback_camera_dirty = true;
+    bool issue_position_readback(const glm::dvec2& pointer_ndc); // false if no slot was free
+#endif
 
     void create_buffers();
     void create_bind_groups();
