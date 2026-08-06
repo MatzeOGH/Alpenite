@@ -50,9 +50,10 @@ public:
     void initialise_gpu() override;
     void resize_framebuffer(int w, int h) override;
     void ready();
-    void paint(webgpu::Framebuffer* framebuffer, WGPUCommandEncoder command_encoder);
-    webgpu::rg::TextureHandle paint(webgpu::rg::RenderGraph* rg, bool use_render_graph);
-    // void paint(WGPUTextureView target_color_texture, WGPUTextureView target_depth_texture, WGPUCommandEncoder encoder);
+
+
+    webgpu::rg::TextureHandle paint(webgpu::rg::RenderGraph* rg);
+
     void paint([[maybe_unused]] QOpenGLFramebufferObject* framebuffer = nullptr) override { throw std::runtime_error("Not implemented"); }
 
     [[nodiscard]] float depth(const glm::dvec2& normalised_device_coordinates) override;
@@ -84,7 +85,6 @@ private:
 
     void create_buffers();
     void create_bind_groups();
-    void recreate_compose_bind_group();
 
     // A helper function for the depth and position method.
     // ATTENTION: This function is synchronous and will hold rendering. Use with caution!
@@ -103,7 +103,6 @@ private:
 
     std::unique_ptr<webgpu::raii::BindGroup> m_shared_config_bind_group;
     std::unique_ptr<webgpu::raii::BindGroup> m_camera_bind_group;
-    std::array<std::unique_ptr<webgpu::raii::BindGroup>, 2> m_compose_bind_groups;
     std::unique_ptr<webgpu::raii::BindGroup> m_depth_texture_bind_group;
 
     nucleus::camera::Definition m_camera;

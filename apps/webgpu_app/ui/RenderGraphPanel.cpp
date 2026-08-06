@@ -2895,10 +2895,6 @@ void RenderGraphPanel::draw()
 
     ImGui::Begin("RenderGraph");
 
-    // reachable with no graph this frame, so the user can switch back from the legacy path
-    ImGui::Checkbox("Drive frame from render graph", &g_use_render_graph);
-    ImGui::Separator();
-
     if (!rg) {
         ImGui::TextUnformatted("Render graph inactive (legacy render path).");
         ImGui::End();

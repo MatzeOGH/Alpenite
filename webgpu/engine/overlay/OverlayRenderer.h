@@ -50,14 +50,6 @@ public:
     void ready(webgpu::Context& ctx);
     void resize(int w, int h);
 
-    void draw(const WGPUCommandEncoder& command_encoder,
-        const webgpu::raii::TextureView& position_view,
-        const webgpu::raii::TextureView& normal_view,
-        const webgpu::raii::TextureView& overlay_view,
-        const WGPUBindGroup& shared_config_bg,
-        const WGPUBindGroup& camera_bg);
-
-
     struct GraphResult {
         webgpu::rg::TextureHandle pre;
         webgpu::rg::TextureHandle post;
@@ -70,9 +62,6 @@ public:
         const WGPUBindGroup& shared_config_bg,
         const WGPUBindGroup& camera_bg);
 
-    [[nodiscard]] const webgpu::raii::TextureView* result_pre_view() const;
-    [[nodiscard]] const webgpu::raii::TextureView* result_post_view() const;
-
 private:
     using TexturePair = std::array<std::unique_ptr<webgpu::raii::TextureWithSampler>, 2>;
 
@@ -80,16 +69,6 @@ private:
     // Refill m_pre_overlays / m_post_overlays from m_overlays (z_index < 0 -> pre otherwise post),
     // preserving order.
     void rebucket();
-
-    void draw_bucket(const WGPUCommandEncoder& command_encoder,
-        const std::vector<Overlay*>& bucket,
-        TexturePair& tex,
-        const webgpu::raii::TextureView& position_view,
-        const webgpu::raii::TextureView& normal_view,
-        const webgpu::raii::TextureView& overlay_view,
-        const WGPUBindGroup& shared_config_bg,
-        const WGPUBindGroup& camera_bg,
-        glm::uvec2 output_size);
 
     Context* m_ctx = nullptr;
     bool m_is_ready = false;

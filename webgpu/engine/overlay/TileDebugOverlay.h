@@ -50,15 +50,6 @@ public:
     // Pushes settings to the GPU and the selected debug mode into shared_config (consumed by the tile pass).
     // Call from the frontend whenever settings change.
     void update_settings();
-    void draw(const WGPUCommandEncoder& command_encoder,
-        const webgpu::raii::TextureView& position_view,
-        const webgpu::raii::TextureView& normal_view,
-        const webgpu::raii::TextureView& overlay_view,
-        const WGPUBindGroup& shared_config_bg,
-        const WGPUBindGroup& camera_bg,
-        const webgpu::raii::TextureWithSampler& current_input,
-        webgpu::raii::TextureWithSampler& target_output,
-        glm::uvec2 output_size) override;
 
     void draw(webgpu::rg::RenderGraph* render_graph,
         webgpu::rg::TextureHandle position,

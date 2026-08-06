@@ -44,15 +44,6 @@ public:
 
     void init(Context& ctx) override;
     void update_settings();
-    void draw(const WGPUCommandEncoder& command_encoder,
-        const webgpu::raii::TextureView& position_view,
-        const webgpu::raii::TextureView& normal_view,
-        const webgpu::raii::TextureView& overlay_view,
-        const WGPUBindGroup& shared_config_bg,
-        const WGPUBindGroup& camera_bg,
-        const webgpu::raii::TextureWithSampler& current_input,
-        webgpu::raii::TextureWithSampler& target_output,
-        glm::uvec2 output_size) override;
 
     void draw(webgpu::rg::RenderGraph* render_graph,
         webgpu::rg::TextureHandle position,

@@ -86,12 +86,6 @@ public:
 
     void resize(int w, int h);
 
-    void draw(const WGPUCommandEncoder& command_encoder,
-        const WGPUBindGroup& depth_texture_bind_group,
-        const WGPUBindGroup& shared_config_bind_group,
-        const nucleus::camera::Definition& camera,
-        uint32_t frame_number);
-
     struct GraphOutput {
         webgpu::rg::TextureHandle color; // hi-res TAAU colour (.curr)
         webgpu::rg::TextureHandle depth; // lo-res ray depth
@@ -107,15 +101,6 @@ public:
     [[nodiscard]] bool needs_redraw() const { return m_stable_frames <= static_cast<uint32_t>(shader_params.stable_frames_limit); }
 
     void set_tile_limit(unsigned new_limit);
-
-    [[nodiscard]] webgpu::raii::TextureView* result_color_view(int frame) const
-    {
-        if (frame % 2 == 0)
-            return m_clouds_hi_color_texture_view_b.get();
-        return m_clouds_hi_color_texture_view_a.get();
-    }
-
-    [[nodiscard]] webgpu::raii::TextureView* result_depth_view() const { return m_clouds_lo_depth_texture_view.get(); }
 
 signals:
     void tiles_changed();

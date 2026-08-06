@@ -40,9 +40,7 @@ public:
 
     void resize(int w, int h);
 
-    void draw(const WGPUCommandEncoder& command_encoder, const WGPUBindGroup& camera_bind_group);
     webgpu::rg::TextureHandle draw(webgpu::rg::RenderGraph* rg, const WGPUBindGroup& camera_bind_group);
-    [[nodiscard]] const webgpu::raii::TextureView* result_view() const;
 
 private:
     webgpu::Context* m_ctx = nullptr;

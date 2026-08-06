@@ -218,55 +218,53 @@ void App::render()
 
     m_frame_count++;
 
-    const bool use_render_graph = g_use_render_graph;
+    webgpu::rg::begin_frame(m_context->graph_allocator);
+    webgpu::rg::RenderGraph* rg = webgpu::rg::start_recording(m_context->graph_allocator);
+    g_render_graph = rg; // pipes the rg to the RenderGraphPanel
 
-    if (use_render_graph) {
-
-        webgpu::rg::begin_frame(m_context->graph_allocator);
-        webgpu::rg::RenderGraph* rg = webgpu::rg::start_recording(m_context->graph_allocator);
-        g_render_graph = rg;
-
-        // import the swapchain texture as an extern dependency
-        auto swapchain = rg->import_texture("swapchain",
-        { .view = surface_texture_view, .size = { m_viewport_size.x, m_viewport_size.y, 1 }, .format = viewDescriptor.format }
-        );
-
-        auto result = m_webgpu_window->paint(rg, true);
-
-        // Blit the scene into the swapchain
-        rg->add_pass("blit", webgpu::rg::PassKind::Graphics,
-            [swapchain, result](webgpu::rg::PassBuilder& b) {
-                b.color(swapchain, 0, { .load = WGPULoadOp_Load });
-                b.sampled(result);
-            },
-            [&](auto& c) {
-
-                webgpu::raii::BindGroup blit_bind_group(c.device, *m_gui_bind_group_layout,
-                    {
-                        c.bind(0, result),
-                        m_gui_ubo->create_bind_group_entry(1),
-                    },
-                    "blit");
-
-                wgpuRenderPassEncoderSetPipeline(c.render_pass, m_gui_pipeline.get()->pipeline().handle());
-                wgpuRenderPassEncoderSetBindGroup(c.render_pass, 0, blit_bind_group.handle(), 0, nullptr);
-                wgpuRenderPassEncoderDraw(c.render_pass, 3, 1, 0, 0);
-            });
-
-        for (webgpu::rg::ErrorMessage* error = rg->compile(); error; error = error->next)
-            qCritical("%.*s", error->message.length, error->message.data);
-
-        rg->execute(m_device, m_queue, encoder, false);
-        rg->collect_gpu_timings();
-    } else {
-
-        if (m_webgpu_window->needs_redraw() || m_force_repaint || m_force_repaint_once) {
-            m_webgpu_window->paint(m_framebuffer.get(), encoder);
-            m_repaint_count++;
-            m_force_repaint_once = false;
+    // import the swapchain texture as an extern dependency
+    auto swapchain = rg->import_texture("swapchain",
+        { 
+            .view = surface_texture_view,
+            .size = { m_viewport_size.x, m_viewport_size.y, 1 },
+            .format = viewDescriptor.format
         }
-    }
+    );
 
+    bool needsRedraw = m_webgpu_window->needs_redraw() || m_force_repaint || m_force_repaint_once;
+    m_force_repaint_once = false;
+    if(needsRedraw) m_repaint_count++;
+
+    // construct the rendre graph
+    auto result = m_webgpu_window->paint(rg);
+
+    // Blit the scene into the swapchain
+    rg->add_pass("blit", webgpu::rg::PassKind::Graphics,
+        [swapchain, result](webgpu::rg::PassBuilder& b) {
+            b.color(swapchain, 0, { .load = WGPULoadOp_Clear });
+            b.sampled(result);
+        },
+        [&](webgpu::rg::PassContext& c) {
+
+            webgpu::raii::BindGroup blit_bind_group(c.device, *m_gui_bind_group_layout,
+                {
+                    c.bind(0, result),
+                    m_gui_ubo->create_bind_group_entry(1),
+                },
+                "blit");
+
+            wgpuRenderPassEncoderSetPipeline(c.render_pass, m_gui_pipeline.get()->pipeline().handle());
+            wgpuRenderPassEncoderSetBindGroup(c.render_pass, 0, blit_bind_group.handle(), 0, nullptr);
+            wgpuRenderPassEncoderDraw(c.render_pass, 3, 1, 0, 0);
+        });
+
+    for (webgpu::rg::ErrorMessage* error = rg->compile(); error; error = error->next)
+        qCritical("%.*s", error->message.length, error->message.data);
+
+    rg->execute(m_device, m_queue, encoder, false);
+    rg->collect_gpu_timings();
+
+    // TODO: move this to the m_gui_manager
     {
         WGPURenderPassColorAttachment gui_color_attachment {};
         gui_color_attachment.view = surface_texture_view;
@@ -281,14 +279,8 @@ void App::render()
 
         WGPURenderPassEncoder gui_pass = wgpuCommandEncoderBeginRenderPass(encoder, &gui_pass_desc);
 
-        if (!use_render_graph) {
-            // Legacy blit: sample m_framebuffer (static bind group) into the swapchain.
-            wgpuRenderPassEncoderSetPipeline(gui_pass, m_gui_pipeline.get()->pipeline().handle());
-            wgpuRenderPassEncoderSetBindGroup(gui_pass, 0, m_gui_bind_group->handle(), 0, nullptr);
-            wgpuRenderPassEncoderDraw(gui_pass, 3, 1, 0, 0);
-        }
-
         m_gui_manager->render(gui_pass);
+
         wgpuRenderPassEncoderEnd(gui_pass);
         wgpuRenderPassEncoderRelease(gui_pass);
     }
@@ -310,10 +302,8 @@ void App::render()
 
     m_cputimer->stop();
 
-    // end the render-graph frame (only if we began one). Kept after submit so the graph's transient resources
-    // outlive the GPU work that references them.
-    if (use_render_graph)
-        webgpu::rg::end_frame(m_context->graph_allocator);
+    // end the render-graph frame
+    webgpu::rg::end_frame(m_context->graph_allocator);
 
 #ifndef __EMSCRIPTEN__
     // Surface present in the WEB is handled by the browser!

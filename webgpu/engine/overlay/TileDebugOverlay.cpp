@@ -102,39 +102,6 @@ void TileDebugOverlay::update_settings()
         m_engine_ctx->shared_config().m_overlay_mode = static_cast<uint32_t>(settings.mode);
 }
 
-void TileDebugOverlay::draw(const WGPUCommandEncoder& command_encoder,
-    const webgpu::raii::TextureView& /*position_view*/,
-    const webgpu::raii::TextureView& /*normal_view*/,
-    const webgpu::raii::TextureView& overlay_view,
-    const WGPUBindGroup& /*shared_config_bg*/,
-    const WGPUBindGroup& /*camera_bg*/,
-    const webgpu::raii::TextureWithSampler& current_input,
-    webgpu::raii::TextureWithSampler& target_output,
-    glm::uvec2 output_size)
-{
-    if (!m_pipeline)
-        return;
-
-    webgpu::raii::BindGroup bind_group(m_ctx->device(),
-        m_ctx->resource_registry().bind_group_layout("tile_debug_overlay"),
-        std::vector<WGPUBindGroupEntry> {
-            overlay_view.create_bind_group_entry(0),
-            m_settings_uniform->raw_buffer().create_bind_group_entry(1),
-            target_output.texture_view().create_bind_group_entry(2),
-            current_input.texture_view().create_bind_group_entry(3),
-        },
-        "tile debug overlay bind group");
-
-    WGPUComputePassDescriptor compute_pass_desc {};
-    compute_pass_desc.label = WGPUStringView { .data = "tile debug compute pass", .length = WGPU_STRLEN };
-    webgpu::raii::ComputePassEncoder compute_pass(command_encoder, compute_pass_desc);
-
-    wgpuComputePassEncoderSetBindGroup(compute_pass.handle(), 0, bind_group.handle(), 0, nullptr);
-
-    const glm::uvec3 workgroup_counts = glm::ceil(glm::vec3(float(output_size.x), float(output_size.y), 1.0f) / glm::vec3(16.0f, 16.0f, 1.0f));
-    m_pipeline->run(compute_pass, workgroup_counts);
-}
-
 void TileDebugOverlay::draw(webgpu::rg::RenderGraph* render_graph,
     webgpu::rg::TextureHandle /*position*/,
     webgpu::rg::TextureHandle /*normal*/,

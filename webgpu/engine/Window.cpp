@@ -135,8 +135,6 @@ void Window::on_shadow_texture_updated(const QByteArray& data)
     wgpuQueueWriteTexture(m_context->webgpu_ctx().queue(), &image_copy_texture, byte_span.data(), byte_span.size_bytes(), &texture_data_layout, &copy_extent);
 
     ktxTexture_Destroy(ktx_texture);
-
-    recreate_compose_bind_group();
 }
 
 void Window::resize_framebuffer(int w, int h)
@@ -157,72 +155,11 @@ void Window::resize_framebuffer(int w, int h)
 
     m_context->cloud_renderer()->resize(w, h);
     m_context->overlay_renderer()->resize(w, h);
-
-    recreate_compose_bind_group(); // Do late
 }
 
-void Window::paint(webgpu::Framebuffer* framebuffer, WGPUCommandEncoder command_encoder)
+webgpu::rg::TextureHandle Window::paint(webgpu::rg::RenderGraph* rg)
 {
-    m_needs_redraw = false;
-
-    // ToDo only update on change?
-    m_shared_config_ubo->data = m_context->shared_config();
-    m_shared_config_ubo->update_gpu_data(m_context->webgpu_ctx().queue());
-
-    // render atmosphere to color buffer
-    m_context->atmosphere_renderer()->draw(command_encoder, m_camera_bind_group->handle());
-
-    // render tiles to geometry buffers
-    {
-        std::unique_ptr<webgpu::raii::RenderPassEncoder> render_pass = m_gbuffer->begin_render_pass(command_encoder);
-        wgpuRenderPassEncoderSetBindGroup(render_pass->handle(), 0, m_shared_config_bind_group->handle(), 0, nullptr);
-        wgpuRenderPassEncoderSetBindGroup(render_pass->handle(), 1, m_camera_bind_group->handle(), 0, nullptr);
-
-        using namespace nucleus::tile;
-        const auto draw_list = drawing::compute_bounds(
-            drawing::limit(drawing::generate_list(m_camera, m_context->aabb_decorator(), m_max_zoom_level), 1024), m_context->aabb_decorator());
-        const auto culled_draw_list = drawing::sort(drawing::cull(draw_list, m_camera), m_camera.position());
-
-        m_context->tile_mesh_renderer()->draw(render_pass->handle(), m_camera, culled_draw_list);
-    }
-
-    // render clouds
-    if (m_context->shared_config().m_clouds_enabled) {
-        m_context->cloud_renderer()->draw(
-            command_encoder, m_depth_texture_bind_group->handle(), m_shared_config_bind_group->handle(), m_camera, m_paint_number);
-        m_needs_redraw |= m_context->cloud_renderer()->needs_redraw(); // Repaint for TAAU
-    }
-
-    // render overlay textures (height lines, tile debug, etc.)
-    m_context->overlay_renderer()->draw(command_encoder,
-        m_gbuffer->color_texture_view(1),
-        m_gbuffer->color_texture_view(2),
-        m_gbuffer->color_texture_view(3),
-        m_shared_config_bind_group->handle(),
-        m_camera_bind_group->handle());
-
-    // render geometry buffers to target framebuffer
-    {
-        std::unique_ptr<webgpu::raii::RenderPassEncoder> render_pass = framebuffer->begin_render_pass(command_encoder);
-        wgpuRenderPassEncoderSetPipeline(render_pass->handle(), m_compose_pipeline->pipeline().handle());
-        wgpuRenderPassEncoderSetBindGroup(render_pass->handle(), 0, m_shared_config_bind_group->handle(), 0, nullptr);
-        wgpuRenderPassEncoderSetBindGroup(render_pass->handle(), 1, m_camera_bind_group->handle(), 0, nullptr);
-        wgpuRenderPassEncoderSetBindGroup(render_pass->handle(), 2, m_compose_bind_groups[m_paint_number % 2]->handle(), 0, nullptr);
-        wgpuRenderPassEncoderDraw(render_pass->handle(), 3, 1, 0, 0);
-    }
-
-    // render lines to color buffer
-    if (m_context->shared_config().m_track_render_mode > 0) {
-        m_context->track_renderer()->render(
-            command_encoder, *m_shared_config_bind_group, *m_camera_bind_group, *m_depth_texture_bind_group, framebuffer->color_texture_view(0));
-    }
-
-    m_paint_number++;
-}
-
-webgpu::rg::TextureHandle Window::paint(webgpu::rg::RenderGraph* rg, bool use_render_graph)
-{
-    // ToDo only update on change?
+    // TODO: only update on change?
     m_shared_config_ubo->data = m_context->shared_config();
     m_shared_config_ubo->update_gpu_data(m_context->webgpu_ctx().queue());
 
@@ -231,32 +168,37 @@ webgpu::rg::TextureHandle Window::paint(webgpu::rg::RenderGraph* rg, bool use_re
         atmosphere = m_context->atmosphere_renderer()->draw(rg, m_camera_bind_group->handle());
     } else {
         atmosphere = rg->create_initialized_texture("atmosphere.fallback",
-            webgpu::rg::texture_2d(WGPUTextureFormat_RGBA8Unorm, 1, 1), { 0, 0, 0, 1 });
+            webgpu::rg::texture_2d(WGPUTextureFormat_RGBA8Unorm, 1, 1), 
+            { 0, 0, 0, 1 });
     }
-
-    if (!use_render_graph)
-        return atmosphere;
 
     const uint32_t w = uint32_t(m_swapchain_size.x);
     const uint32_t h = uint32_t(m_swapchain_size.y);
 
+    /*
     auto make_target = [&](std::string_view id, WGPUTextureFormat fmt) {
         return rg->create_transient_texture(id, webgpu::rg::texture_2d(fmt, w, h));
     };
-    auto albedo = make_target("gbuffer.albedo", WGPUTextureFormat_R32Uint);
+    */
+    auto albedo = rg->create_transient_texture("gbuffer.albedo", webgpu::rg::texture_2d(WGPUTextureFormat_R32Uint, w, h));
 
     auto position = rg->import_texture("gbuffer.position",
-        { .view = m_gbuffer->color_texture_view(1).handle(),
+        { 
+            .view = m_gbuffer->color_texture_view(1).handle(),
             .size = { w, h, 1 },
-            .format = WGPUTextureFormat_RGBA32Float });
-    auto normal = make_target("gbuffer.normal", WGPUTextureFormat_RG16Uint);
-    auto overlay = make_target("gbuffer.overlay", WGPUTextureFormat_R32Uint);
+            .format = WGPUTextureFormat_RGBA32Float 
+        }
+    );
+    auto normal = rg->create_transient_texture("gbuffer.normal", webgpu::rg::texture_2d(WGPUTextureFormat_RG16Uint, w, h));
+    auto overlay = rg->create_transient_texture("gbuffer.overlay", webgpu::rg::texture_2d(WGPUTextureFormat_R32Uint, w, h));
 
     auto gdepth = rg->import_texture("gbuffer.depth",
-        { .view = m_gbuffer->depth_texture_view().handle(),
+        { 
+            .view = m_gbuffer->depth_texture_view().handle(),
             .size = { w, h, 1 },
-            .format = m_gbuffer_format.depth_format });
-
+            .format = m_gbuffer_format.depth_format 
+        }
+    );
 
     rg->add_pass("Tiles", webgpu::rg::PassKind::Graphics,
         [albedo, position, normal, overlay, gdepth](webgpu::rg::PassBuilder& b) {
@@ -280,15 +222,14 @@ webgpu::rg::TextureHandle Window::paint(webgpu::rg::RenderGraph* rg, bool use_re
         });
 
     // Compose: resolve G-buffer + atmosphere into a full-size colour target.
-    auto composed = rg->create_transient_texture("composed_color",
-        webgpu::rg::texture_2d(m_context->webgpu_ctx().surface_texture_format(), w, h));
-    auto compose_depth = make_target("compose_depth", WGPUTextureFormat_Depth24Plus);
+    auto composed = rg->create_transient_texture("composed_color", webgpu::rg::texture_2d(m_context->webgpu_ctx().surface_texture_format(), w, h));
+    auto compose_depth = rg->create_transient_texture("compose_depth", webgpu::rg::texture_2d(WGPUTextureFormat_Depth24Plus, w, h));
 
     webgpu::rg::TextureHandle cloud_color;
     webgpu::rg::TextureHandle cloud_depth;
+
     if (m_context->shared_config().m_clouds_enabled) {
-        auto cloud = m_context->cloud_renderer()->draw(
-            rg, m_depth_texture_bind_group->handle(), m_shared_config_bind_group->handle(), m_camera, m_paint_number, gdepth);
+        auto cloud = m_context->cloud_renderer()->draw(rg, m_depth_texture_bind_group->handle(), m_shared_config_bind_group->handle(), m_camera, m_paint_number, gdepth);
         cloud_color = cloud.color;
         cloud_depth = cloud.depth;
         m_needs_redraw |= m_context->cloud_renderer()->needs_redraw();
@@ -300,8 +241,7 @@ webgpu::rg::TextureHandle Window::paint(webgpu::rg::RenderGraph* rg, bool use_re
             webgpu::rg::texture_2d(WGPUTextureFormat_R32Float, 1, 1), { 0, 0, 0, 0 });
     }
 
-    auto overlay_result = m_context->overlay_renderer()->draw(
-        rg, position, normal, overlay, m_shared_config_bind_group->handle(), m_camera_bind_group->handle());
+    auto overlay_result = m_context->overlay_renderer()->draw( rg, position, normal, overlay, m_shared_config_bind_group->handle(), m_camera_bind_group->handle());
     auto overlay_pre = overlay_result.pre;
     auto overlay_post = overlay_result.post;
 
@@ -346,8 +286,13 @@ webgpu::rg::TextureHandle Window::paint(webgpu::rg::RenderGraph* rg, bool use_re
         });
 
     if (m_context->shared_config().m_track_render_mode > 0) {
-        m_context->track_renderer()->render(rg, composed, gdepth,
-            m_shared_config_bind_group->handle(), m_camera_bind_group->handle(), m_depth_texture_bind_group->handle());
+        m_context->track_renderer()->render(
+            rg,
+            composed, gdepth,
+            m_shared_config_bind_group->handle(),
+            m_camera_bind_group->handle(),
+            m_depth_texture_bind_group->handle()
+        );
     }
 
     m_paint_number++;
@@ -433,7 +378,6 @@ void Window::ready() { m_context->overlay_renderer()->ready(m_context->webgpu_ct
 void Window::reload_shaders()
 {
     m_context->webgpu_ctx().resource_registry().recreate_all(m_context->webgpu_ctx().device());
-    recreate_compose_bind_group();
     qDebug() << "reloading shaders done";
     request_redraw();
 }
@@ -457,28 +401,6 @@ void Window::create_bind_groups()
     m_camera_bind_group = std::make_unique<webgpu::raii::BindGroup>(m_context->webgpu_ctx().device(),
         m_context->webgpu_ctx().resource_registry().bind_group_layout("camera"),
         std::initializer_list<WGPUBindGroupEntry> { m_camera_config_ubo->raw_buffer().create_bind_group_entry(0) });
-}
-
-void Window::recreate_compose_bind_group()
-{
-    for (int i = 0; i < 2; ++i) {
-        m_compose_bind_groups[i] = std::make_unique<webgpu::raii::BindGroup>(m_context->webgpu_ctx().device(),
-            m_context->webgpu_ctx().resource_registry().bind_group_layout("compose"),
-            std::initializer_list<WGPUBindGroupEntry> {
-                m_gbuffer->color_texture_view(0).create_bind_group_entry(0), // albedo texture
-                m_gbuffer->color_texture_view(1).create_bind_group_entry(1), // position texture
-                m_gbuffer->color_texture_view(2).create_bind_group_entry(2), // normal texture
-                m_context->atmosphere_renderer()->result_view()->create_bind_group_entry(3), // atmosphere texture
-                m_gbuffer->color_texture_view(3).create_bind_group_entry(4), // overlay texture
-                m_context->cloud_renderer()->result_color_view(i)->create_bind_group_entry(5),
-                m_context->cloud_renderer()->result_depth_view()->create_bind_group_entry(6),
-                m_shadow_texture->texture_view().create_bind_group_entry(7),
-                m_shadow_texture->sampler().create_bind_group_entry(8),
-                m_gbuffer->depth_texture_view().create_bind_group_entry(9),
-                m_context->overlay_renderer()->result_post_view()->create_bind_group_entry(10), // overlay post-shading output
-                m_context->overlay_renderer()->result_pre_view()->create_bind_group_entry(11), // overlay pre-shading output
-            });
-    }
 }
 
 void Window::update_required_gpu_limits(WGPULimits& limits, const WGPULimits& supported_limits)

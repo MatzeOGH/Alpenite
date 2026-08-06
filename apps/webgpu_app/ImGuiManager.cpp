@@ -58,7 +58,7 @@
 
 namespace webgpu_app {
 
-bool g_use_render_graph = false;
+    //TODO: move 
 webgpu::rg::RenderGraph* g_render_graph = nullptr;
 
 ImGuiManager::ImGuiManager(App* terrain_renderer)
