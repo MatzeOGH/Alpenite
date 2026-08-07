@@ -985,9 +985,9 @@ rg->add_pass("CopyArgs", webgpu::rg::PassKind::Transfer,
     });
 ```
 
-The buffer side of a texture copy is yours to describe, and WebGPU requires each row to start on a
-256-byte boundary. `webgpu::rg::aligned_bytes_per_row(widthTexels, texelBlockBytes)` does that
-rounding, so the readback buffer and the layout agree:
+The buffer side of a texture copy is yours to describe, and WebGPU requires each row to start on
+a 256-byte boundary. `webgpu::aligned_bytes_per_row(widthTexels, texelBlockBytes)` does that
+rounding so the readback buffer and the layout agree:
 
 ```cpp
 // Texture -> buffer readback. The buffer-side layout is the body's; rows are 256-aligned.
@@ -996,7 +996,7 @@ rg->add_pass("Readback", webgpu::rg::PassKind::Transfer,
     [src, dst, w, h](webgpu::rg::PassContext& ctx) {
         WGPUTexelCopyBufferLayout layout {
             .offset = 0,
-            .bytesPerRow  = webgpu::rg::aligned_bytes_per_row(w, /*texelBytes*/ 4),
+            .bytesPerRow  = webgpu::aligned_bytes_per_row(w, /*texelBytes*/ 4),
             .rowsPerImage = h,
         };
         auto s  = ctx.copy_src_info(src);          // texture side, declared mip/layer applied

@@ -203,14 +203,6 @@ struct BufferRange {
     uint64_t size = 0; // from offset. 0 = all remaining.
 };
 
-// the 256-byte row alignment WebGPU requires for buffer<->texture copies
-inline uint32_t aligned_bytes_per_row(uint32_t widthTexels, uint32_t texelBlockBytes)
-{
-    constexpr uint32_t align = 256u;
-    uint32_t raw = widthTexels * texelBlockBytes;
-    return (raw + (align - 1u)) & ~(align - 1u);
-}
-
 // how a color attachment is bound. the default is clear to black, store, mip 0, layer 0.
 struct ColorAttachment {
     WGPULoadOp load = WGPULoadOp_Clear; // Load keeps the previous contents, Clear overwrites with clear

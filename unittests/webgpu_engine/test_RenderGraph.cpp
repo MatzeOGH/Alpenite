@@ -19,11 +19,13 @@
 #include "UnittestWebgpuContext.h"
 #include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <cstdint>
 #include <string>
 #include <type_traits>
 #include <vector>
 #include <webgpu/base/RenderGraph.h>
 #include <webgpu/base/RenderGraph_internal.h>
+#include <webgpu/base/gpu_utils.h>
 #include <webgpu/base/raii/BindGroup.h>
 #include <webgpu/base/raii/RawBuffer.h>
 
@@ -2219,7 +2221,7 @@ TEST_CASE("StringInterner - canonical pointers stay stable across many interns",
     const char* firstData = first.name.data;
 
     std::vector<ResourceId> ids;
-    for (int i = 0; i < StringInterner::kBuckets * 8; ++i)
+    for (uint32_t i = 0; i < StringInterner::kBuckets * 8; ++i)
         ids.push_back(f.interner.intern("filler." + std::to_string(i)));
 
     REQUIRE(f.interner.intern("first.name").name.data == firstData); // same node, no relocation
@@ -2872,7 +2874,7 @@ struct ExecGraph {
 // texture->buffer readback into an imported `dst`. rows are 256-aligned, so buf size is alignedRow*H.
 static void encode_readback(PassContext& ctx, TextureHandle src, BufferHandle dst, uint32_t w, uint32_t h)
 {
-    WGPUTexelCopyBufferLayout layout { .offset = 0, .bytesPerRow = webgpu::rg::aligned_bytes_per_row(w, 4), .rowsPerImage = h };
+    WGPUTexelCopyBufferLayout layout { .offset = 0, .bytesPerRow = webgpu::aligned_bytes_per_row(w, 4), .rowsPerImage = h };
     auto s = ctx.copy_src_info(src);
     auto d = ctx.copy_dst_buffer(dst, layout);
     auto sz = ctx.copy_extent_src(src);
@@ -2884,7 +2886,7 @@ static void encode_readback(PassContext& ctx, TextureHandle src, BufferHandle ds
 TEST_CASE("RenderGraph exec - clear then readback returns the clear color", "[RenderGraph][gpu]")
 {
     constexpr uint32_t W = 16, H = 16;
-    const uint32_t alignedRow = webgpu::rg::aligned_bytes_per_row(W, 4);
+    const uint32_t alignedRow = webgpu::aligned_bytes_per_row(W, 4);
 
     ExecGraph g;
     // imported readback target, MapRead so the host can read it directly after submit
@@ -3077,7 +3079,7 @@ TEST_CASE("RenderGraph exec - a same-descriptor transient is reused across frame
 TEST_CASE("RenderGraph exec - a wider-usage pooled transient satisfies a narrower request", "[RenderGraph][gpu]")
 {
     constexpr uint32_t W = 16, H = 16;
-    const uint32_t alignedRow = webgpu::rg::aligned_bytes_per_row(W, 4);
+    const uint32_t alignedRow = webgpu::aligned_bytes_per_row(W, 4);
 
     ExecGraph g;
     webgpu::raii::RawBuffer<uint8_t> readback(g.gpu.device, WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead, alignedRow * H, "superset readback");

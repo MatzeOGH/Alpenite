@@ -35,6 +35,7 @@
 #include <webgpu/webgpu.h>
 
 #include "RenderGraph.h"
+#include "wgpu_string.h"
 
 namespace webgpu::rg {
 
@@ -57,7 +58,7 @@ struct ResourceId {
 
 // borrows the name, so an id outliving the caller's string must intern it
 constexpr ResourceId make_resource_id(std::string_view s) {
-    return ResourceId(fnv1a(s), WGPUStringView { .data = s.data(), .length = s.length() });
+    return ResourceId(fnv1a(s), webgpu::wsv(s));
 }
 
 constexpr bool operator==(ResourceId a, ResourceId b)
@@ -131,11 +132,6 @@ struct ResourceAccess {
     uint8_t baseMip {};
     uint8_t mipCount { 1 };
 };
-
-// resolves the WGPU_STRLEN sentinel
-size_t sv_length(WGPUStringView s);
-
-bool sv_eq(WGPUStringView a, WGPUStringView b);
 
 // the span before the first '.', empty if none
 WGPUStringView group_prefix(WGPUStringView name);
@@ -779,11 +775,5 @@ bool access_is_write(AccessType t);
 
 // empty past the end. for the debug lifetime widget.
 WGPUStringView pass_name_at(PassNode* head, uint32_t idx);
-
-// texel-block descriptor
-struct TexelBlock { uint32_t w, h, bytes; };
-TexelBlock format_block(WGPUTextureFormat f);
-
-uint64_t texture_bytes(WGPUExtent3D size, WGPUTextureFormat format, uint32_t mipLevelCount = 1, uint32_t sampleCount = 1, WGPUTextureDimension dim = WGPUTextureDimension_2D);
 
 } // namespace webgpu::rg::Internal

@@ -26,6 +26,8 @@
 #include <cstdio>
 
 #include "webgpu/base/RenderGraph_internal.h"
+#include "webgpu/base/gpu_utils.h"
+#include "webgpu/base/wgpu_string.h"
 
 
 using namespace webgpu;
@@ -77,138 +79,6 @@ static ImU32 rg_resource_color(ResourceKind k)
                                             : IM_COL32(170, 120, 60, 255);
 }
 
-// short format label, unknown formats fall back to the raw enum
-static const char* rg_format_name(WGPUTextureFormat f)
-{
-    switch (f)
-    {
-    // 8-bit formats
-    case WGPUTextureFormat_R8Unorm:              return "R8Unorm";
-    case WGPUTextureFormat_R8Snorm:              return "R8Snorm";
-    case WGPUTextureFormat_R8Uint:               return "R8Uint";
-    case WGPUTextureFormat_R8Sint:               return "R8Sint";
-
-    // 16-bit formats
-    case WGPUTextureFormat_R16Uint:              return "R16Uint";
-    case WGPUTextureFormat_R16Sint:              return "R16Sint";
-    case WGPUTextureFormat_R16Float:             return "R16Float";
-
-    case WGPUTextureFormat_RG8Unorm:             return "RG8Unorm";
-    case WGPUTextureFormat_RG8Snorm:             return "RG8Snorm";
-    case WGPUTextureFormat_RG8Uint:              return "RG8Uint";
-    case WGPUTextureFormat_RG8Sint:              return "RG8Sint";
-
-    // 32-bit formats
-    case WGPUTextureFormat_R32Float:             return "R32Float";
-    case WGPUTextureFormat_R32Uint:              return "R32Uint";
-    case WGPUTextureFormat_R32Sint:              return "R32Sint";
-
-    case WGPUTextureFormat_RG16Uint:             return "RG16Uint";
-    case WGPUTextureFormat_RG16Sint:             return "RG16Sint";
-    case WGPUTextureFormat_RG16Float:            return "RG16Float";
-
-    case WGPUTextureFormat_RGBA8Unorm:           return "RGBA8Unorm";
-    case WGPUTextureFormat_RGBA8UnormSrgb:       return "RGBA8UnormSrgb";
-    case WGPUTextureFormat_RGBA8Snorm:           return "RGBA8Snorm";
-    case WGPUTextureFormat_RGBA8Uint:            return "RGBA8Uint";
-    case WGPUTextureFormat_RGBA8Sint:            return "RGBA8Sint";
-
-    case WGPUTextureFormat_BGRA8Unorm:           return "BGRA8Unorm";
-    case WGPUTextureFormat_BGRA8UnormSrgb:       return "BGRA8UnormSrgb";
-
-    case WGPUTextureFormat_RGB10A2Uint:          return "RGB10A2Uint";
-    case WGPUTextureFormat_RGB10A2Unorm:         return "RGB10A2Unorm";
-    case WGPUTextureFormat_RG11B10Ufloat:        return "RG11B10Ufloat";
-
-    // 64-bit formats
-    case WGPUTextureFormat_RG32Float:            return "RG32Float";
-    case WGPUTextureFormat_RG32Uint:             return "RG32Uint";
-    case WGPUTextureFormat_RG32Sint:             return "RG32Sint";
-
-    case WGPUTextureFormat_RGBA16Uint:           return "RGBA16Uint";
-    case WGPUTextureFormat_RGBA16Sint:           return "RGBA16Sint";
-    case WGPUTextureFormat_RGBA16Float:          return "RGBA16Float";
-
-    // 128-bit formats
-    case WGPUTextureFormat_RGBA32Float:          return "RGBA32Float";
-    case WGPUTextureFormat_RGBA32Uint:           return "RGBA32Uint";
-    case WGPUTextureFormat_RGBA32Sint:           return "RGBA32Sint";
-
-    // depth / stencil
-    case WGPUTextureFormat_Stencil8:             return "Stencil8";
-    case WGPUTextureFormat_Depth16Unorm:         return "Depth16Unorm";
-    case WGPUTextureFormat_Depth24Plus:          return "Depth24Plus";
-    case WGPUTextureFormat_Depth24PlusStencil8: return "Depth24PlusStencil8";
-    case WGPUTextureFormat_Depth32Float:         return "Depth32Float";
-    case WGPUTextureFormat_Depth32FloatStencil8:return "Depth32FloatStencil8";
-
-    // BC compressed
-    case WGPUTextureFormat_BC1RGBAUnorm:         return "BC1RGBAUnorm";
-    case WGPUTextureFormat_BC1RGBAUnormSrgb:     return "BC1RGBAUnormSrgb";
-    case WGPUTextureFormat_BC2RGBAUnorm:         return "BC2RGBAUnorm";
-    case WGPUTextureFormat_BC2RGBAUnormSrgb:     return "BC2RGBAUnormSrgb";
-    case WGPUTextureFormat_BC3RGBAUnorm:         return "BC3RGBAUnorm";
-    case WGPUTextureFormat_BC3RGBAUnormSrgb:     return "BC3RGBAUnormSrgb";
-    case WGPUTextureFormat_BC4RUnorm:            return "BC4RUnorm";
-    case WGPUTextureFormat_BC4RSnorm:            return "BC4RSnorm";
-    case WGPUTextureFormat_BC5RGUnorm:           return "BC5RGUnorm";
-    case WGPUTextureFormat_BC5RGSnorm:           return "BC5RGSnorm";
-    case WGPUTextureFormat_BC6HRGBUfloat:        return "BC6HRGBUfloat";
-    case WGPUTextureFormat_BC6HRGBFloat:         return "BC6HRGBFloat";
-    case WGPUTextureFormat_BC7RGBAUnorm:         return "BC7RGBAUnorm";
-    case WGPUTextureFormat_BC7RGBAUnormSrgb:     return "BC7RGBAUnormSrgb";
-
-    // ETC2
-    case WGPUTextureFormat_ETC2RGB8Unorm:             return "ETC2RGB8Unorm";
-    case WGPUTextureFormat_ETC2RGB8UnormSrgb:         return "ETC2RGB8UnormSrgb";
-    case WGPUTextureFormat_ETC2RGB8A1Unorm:           return "ETC2RGB8A1Unorm";
-    case WGPUTextureFormat_ETC2RGB8A1UnormSrgb:       return "ETC2RGB8A1UnormSrgb";
-    case WGPUTextureFormat_ETC2RGBA8Unorm:            return "ETC2RGBA8Unorm";
-    case WGPUTextureFormat_ETC2RGBA8UnormSrgb:        return "ETC2RGBA8UnormSrgb";
-    case WGPUTextureFormat_EACR11Unorm:               return "EACR11Unorm";
-    case WGPUTextureFormat_EACR11Snorm:               return "EACR11Snorm";
-    case WGPUTextureFormat_EACRG11Unorm:              return "EACRG11Unorm";
-    case WGPUTextureFormat_EACRG11Snorm:              return "EACRG11Snorm";
-
-    // ASTC
-    case WGPUTextureFormat_ASTC4x4Unorm:              return "ASTC4x4Unorm";
-    case WGPUTextureFormat_ASTC4x4UnormSrgb:          return "ASTC4x4UnormSrgb";
-    case WGPUTextureFormat_ASTC5x4Unorm:              return "ASTC5x4Unorm";
-    case WGPUTextureFormat_ASTC5x4UnormSrgb:          return "ASTC5x4UnormSrgb";
-    case WGPUTextureFormat_ASTC5x5Unorm:              return "ASTC5x5Unorm";
-    case WGPUTextureFormat_ASTC5x5UnormSrgb:          return "ASTC5x5UnormSrgb";
-    case WGPUTextureFormat_ASTC6x5Unorm:              return "ASTC6x5Unorm";
-    case WGPUTextureFormat_ASTC6x5UnormSrgb:          return "ASTC6x5UnormSrgb";
-    case WGPUTextureFormat_ASTC6x6Unorm:              return "ASTC6x6Unorm";
-    case WGPUTextureFormat_ASTC6x6UnormSrgb:          return "ASTC6x6UnormSrgb";
-    case WGPUTextureFormat_ASTC8x5Unorm:              return "ASTC8x5Unorm";
-    case WGPUTextureFormat_ASTC8x5UnormSrgb:          return "ASTC8x5UnormSrgb";
-    case WGPUTextureFormat_ASTC8x6Unorm:              return "ASTC8x6Unorm";
-    case WGPUTextureFormat_ASTC8x6UnormSrgb:          return "ASTC8x6UnormSrgb";
-    case WGPUTextureFormat_ASTC8x8Unorm:              return "ASTC8x8Unorm";
-    case WGPUTextureFormat_ASTC8x8UnormSrgb:          return "ASTC8x8UnormSrgb";
-    case WGPUTextureFormat_ASTC10x5Unorm:             return "ASTC10x5Unorm";
-    case WGPUTextureFormat_ASTC10x5UnormSrgb:         return "ASTC10x5UnormSrgb";
-    case WGPUTextureFormat_ASTC10x6Unorm:             return "ASTC10x6Unorm";
-    case WGPUTextureFormat_ASTC10x6UnormSrgb:         return "ASTC10x6UnormSrgb";
-    case WGPUTextureFormat_ASTC10x8Unorm:             return "ASTC10x8Unorm";
-    case WGPUTextureFormat_ASTC10x8UnormSrgb:         return "ASTC10x8UnormSrgb";
-    case WGPUTextureFormat_ASTC10x10Unorm:            return "ASTC10x10Unorm";
-    case WGPUTextureFormat_ASTC10x10UnormSrgb:        return "ASTC10x10UnormSrgb";
-    case WGPUTextureFormat_ASTC12x10Unorm:            return "ASTC12x10Unorm";
-    case WGPUTextureFormat_ASTC12x10UnormSrgb:        return "ASTC12x10UnormSrgb";
-    case WGPUTextureFormat_ASTC12x12Unorm:            return "ASTC12x12Unorm";
-    case WGPUTextureFormat_ASTC12x12UnormSrgb:        return "ASTC12x12UnormSrgb";
-
-    default:
-        break;
-    }
-
-    static char buf[32];
-    std::snprintf(buf, sizeof(buf), "TextureFormat(%u)", (unsigned)f);
-    return buf;
-}
-
 // usage bits the pool keys on
 static void rg_usage_str(WGPUTextureUsage u, char* out, size_t n)
 {
@@ -258,7 +128,7 @@ static constexpr ImU32 kRGDead = IM_COL32(196, 104, 92, 255);   // graph-owned w
 static ImU32 group_color(WGPUStringView prefix)
 {
     uint32_t h = 2166136261u;
-    for (size_t i = 0; i < sv_length(prefix); ++i) { h ^= (uint8_t)prefix.data[i]; h *= 16777619u; }
+    for (size_t i = 0; i < wsv_length(prefix); ++i) { h ^= (uint8_t)prefix.data[i]; h *= 16777619u; }
     static const ImU32 pal[] = {
         IM_COL32(120, 180, 230, 230), IM_COL32(230, 170, 90, 230), IM_COL32(150, 210, 140, 230),
         IM_COL32(210, 140, 200, 230), IM_COL32(220, 205, 110, 230), IM_COL32(140, 205, 210, 230),
@@ -272,7 +142,7 @@ static ImGuiID rg_grp_key(WGPUStringView prefix)
 {
     ImU32 h = 2166136261u;
     for (const char* s = "rg.grp."; *s; ++s) { h ^= (uint8_t)*s; h *= 16777619u; }
-    for (size_t i = 0; i < sv_length(prefix); ++i) { h ^= (uint8_t)prefix.data[i]; h *= 16777619u; }
+    for (size_t i = 0; i < wsv_length(prefix); ++i) { h ^= (uint8_t)prefix.data[i]; h *= 16777619u; }
     return (ImGuiID)h;
 }
 
@@ -610,7 +480,7 @@ static void rg_barycenter_relax(std::vector<int>* lcol, int maxCol,
 // the first segs dotted segments of name: "bloom.down.0" with segs=2 -> "bloom.down", empty if fewer
 static WGPUStringView group_prefix_n(WGPUStringView name, int segs)
 {
-    size_t n = sv_length(name); int seen = 0;
+    size_t n = wsv_length(name); int seen = 0;
     for (size_t i = 0; i < n; ++i)
         if (name.data[i] == '.' && ++seen == segs) return WGPUStringView{ name.data, i };
     return (seen + 1 == segs) ? name : WGPUStringView{};   // exactly `segs` segments -> whole name is the prefix
@@ -634,12 +504,12 @@ static int build_gtree(std::vector<GNode>& gtree, const RgDagBox* box, int n,
     gtree.push_back(GNode{});
     GNode g{};
     g.prefix = prefix; g.gi = gi; g.gj = gj; g.depth = depth;
-    if (sv_length(prefix)) { int st = grpStore->GetInt(rg_grp_key(prefix), 0); g.collapsed = st == 2 ? true : st == 1 ? false : collapseDefault; }
+    if (wsv_length(prefix)) { int st = grpStore->GetInt(rg_grp_key(prefix), 0); g.collapsed = st == 2 ? true : st == 1 ? false : collapseDefault; }
     for (int a = gi; a < gj;) {
         WGPUStringView sub = group_prefix_n(box[a].p->id.name, depth + 1);
         int b = a + 1;
-        while (b < gj && sv_length(sub) && sv_eq(group_prefix_n(box[b].p->id.name, depth + 1), sub)) ++b;
-        if (sv_length(sub) && b - a >= 2 && !(a == gi && b == gj))
+        while (b < gj && wsv_length(sub) && group_prefix_n(box[b].p->id.name, depth + 1) == sub) ++b;
+        if (wsv_length(sub) && b - a >= 2 && !(a == gi && b == gj))
             g.kids.push_back(build_gtree(gtree, box, n, grpStore, collapseDefault, a, b, depth + 1, sub));
         a = b;
     }
@@ -653,7 +523,7 @@ static void rg_mark_collapsed(const std::vector<GNode>& gt, int* collOwner, int 
 {
     const GNode& g = gt[node];
     int myOwner = owner;
-    if (owner < 0 && sv_length(g.prefix) && g.collapsed) myOwner = node;
+    if (owner < 0 && wsv_length(g.prefix) && g.collapsed) myOwner = node;
     if (myOwner >= 0) for (int k = g.gi; k < g.gj; ++k) if (collOwner[k] < 0) collOwner[k] = myOwner;
     for (int kid : g.kids) rg_mark_collapsed(gt, collOwner, kid, myOwner);
 }
@@ -664,7 +534,7 @@ static void rg_assign_clusters(const std::vector<GNode>& gt, int* clusterOf, int
 {
     const GNode& g = gt[node];
     for (int kid : g.kids) clusterParent[kid] = node;
-    if (sv_length(g.prefix)) {
+    if (wsv_length(g.prefix)) {
         if (g.collapsed) return;   // folded subtree -> members keep the parent expanded cluster
         for (int k = g.gi; k < g.gj; ++k) clusterOf[k] = node;
     }
@@ -804,7 +674,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     for (int i = 0; i < n; ++i) effH[i] = box[i].h;
     for (int o = 0; o < (int)gtree.size(); ++o) {
         GNode& g = gtree[o];
-        if (!sv_length(g.prefix) || !g.collapsed) continue;
+        if (!wsv_length(g.prefix) || !g.collapsed) continue;
         if (collOwner[g.gi] != o) continue;   // shadowed by a collapsed ancestor -> that outer group is the rep
         uint32_t inId[kRgGPinMax], outId[kRgGPinMax]; int ni = 0, no = 0;
         rg_group_interface(rg, box, n, g.gi, g.gj, inId, ni, outId, no);
@@ -855,7 +725,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     {
         static std::vector<int> sMin, sMax; sMin.assign(gtree.size(), 1 << 30); sMax.assign(gtree.size(), -1);
         for (int o = 1; o < (int)gtree.size(); ++o) {
-            GNode& g = gtree[o]; if (!sv_length(g.prefix) || g.collapsed) continue;
+            GNode& g = gtree[o]; if (!wsv_length(g.prefix) || g.collapsed) continue;
             if (collOwner[g.gi] >= 0 && collOwner[g.gi] != o) continue;
             for (int k = g.gi; k < g.gj; ++k) { if (colOf[k] < sMin[o]) sMin[o] = colOf[k]; if (colOf[k] > sMax[o]) sMax[o] = colOf[k]; }
         }
@@ -863,7 +733,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
             if (collOwner[i] >= 0) continue;   // folded -> routes to a compact pin, not a hull pin
             int best = -1, bd = 1 << 30;
             for (int o = 1; o < (int)gtree.size(); ++o) {
-                GNode& g = gtree[o]; if (!sv_length(g.prefix) || g.collapsed || sMax[o] < 0) continue;
+                GNode& g = gtree[o]; if (!wsv_length(g.prefix) || g.collapsed || sMax[o] < 0) continue;
                 if (g.gi <= i && i < g.gj && g.depth < bd) { bd = g.depth; best = o; }
             }
             if (best >= 0) { vReadCol[i] = sMin[best] - 1; vWriteCol[i] = sMax[best] + 1; }
@@ -1001,8 +871,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         for (int ga = 0; ga < n;) {
             WGPUStringView pre = group_prefix(box[ga].p->id.name);
             int gb = ga + 1;
-            while (gb < n && sv_length(pre) && sv_eq(group_prefix(box[gb].p->id.name), pre)) ++gb;
-            if (sv_length(pre) && gb - ga >= 2) for (int k = ga + 1; k < gb; ++k) comp[cfind(ga)] = cfind(k);
+            while (gb < n && wsv_length(pre) && group_prefix(box[gb].p->id.name) == pre) ++gb;
+            if (wsv_length(pre) && gb - ga >= 2) for (int k = ga + 1; k < gb; ++k) comp[cfind(ga)] = cfind(k);
             ga = gb;
         }
         for (int li = 0; li < LN; ++li) comp[li] = cfind(li);
@@ -1050,7 +920,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         auto inSub = [&](int li, int anc) { for (int c = lclus[li]; c >= 0; c = clusterParent[c]) if (c == anc) return true; return false; };
         for (int o = (int)gtree.size() - 1; o >= 1; --o) {
             GNode& g = gtree[o];
-            if (!sv_length(g.prefix) || g.collapsed) continue;          // only expanded groups draw a hull
+            if (!wsv_length(g.prefix) || g.collapsed) continue;          // only expanded groups draw a hull
             if (collOwner[g.gi] >= 0 && collOwner[g.gi] != o) continue;  // shadowed by a collapsed ancestor -> not drawn
             float bandTop = 1e30f, bandBot = -1e30f; int colMin = 1 << 30, colMax = -1;
             for (int li = 0; li < LN; ++li) if (inSub(li, o)) {
@@ -1151,7 +1021,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         gcMin.assign(gtree.size(), 1 << 30); gcMax.assign(gtree.size(), -1);
         for (int o = 1; o < (int)gtree.size(); ++o) {
             const GNode& g = gtree[o];
-            if (!sv_length(g.prefix) || g.collapsed) continue;
+            if (!wsv_length(g.prefix) || g.collapsed) continue;
             if (collOwner[g.gi] >= 0 && collOwner[g.gi] != o) continue;
             float t0 = 1e30f, b0 = -1e30f;
             for (int k = g.gi; k < g.gj; ++k) {
@@ -1400,8 +1270,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     for (int gi = 0; gi < n;) {
         WGPUStringView pre = group_prefix(box[gi].p->id.name);
         int gj = gi + 1;
-        while (gj < n && sv_length(pre) && sv_eq(group_prefix(box[gj].p->id.name), pre)) ++gj;
-        if (!(sv_length(pre) && gj - gi >= 2)) { gi = gj; continue; }
+        while (gj < n && wsv_length(pre) && group_prefix(box[gj].p->id.name) == pre) ++gj;
+        if (!(wsv_length(pre) && gj - gi >= 2)) { gi = gj; continue; }
 
         float x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f;
         for (int k = gi; k < gj; ++k) {
@@ -1427,7 +1297,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
             ImVec2 a(x0 - kRegionPad, y0 - kRegionPad - kHeaderH), b(x1 + kRegionPad, y1 + kRegionPad);
             dl->AddRectFilled(a, b, rg_with_alpha(gcol, 22), 6.0f);
             dl->AddRect(a, b, gcol, 6.0f, 0, 2.0f);
-            char lbl[64]; std::snprintf(lbl, sizeof lbl, "[-] %.*s  x%d", (int)sv_length(pre), pre.data, gj - gi);
+            char lbl[64]; std::snprintf(lbl, sizeof lbl, "[-] %.*s  x%d", (int)wsv_length(pre), pre.data, gj - gi);
             dl->AddText(ImVec2(a.x + 6, a.y + 3), gcol, lbl);
             g.bb0 = a; g.bb1 = b; g.h0 = a; g.h1 = ImVec2(b.x, a.y + kHeaderH);
             // pins on the hull edges aligned to the members they serve, so boundary edges run straight across
@@ -1463,7 +1333,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     const float kSubPad = 11.0f * zoom;   // gap from a subgroup border to its members / nested child borders
     for (int gni = (int)gtree.size() - 1; gni >= 1; --gni) {
         GNode& g2 = gtree[gni];
-        if (g2.depth < 2 || !sv_length(g2.prefix)) continue;
+        if (g2.depth < 2 || !wsv_length(g2.prefix)) continue;
         if (collOwner[g2.gi] >= 0 && collOwner[g2.gi] != gni) continue;   // inside a collapsed ancestor -> not drawn
         if (g2.collapsed) {   // compact node over the rep cell (sized compact at layout time via repH)
             uint32_t ii[kRgGPinMax], oo[kRgGPinMax]; int ni = 0, no = 0; rg_group_interface(rg, box, n, g2.gi, g2.gj, ii, ni, oo, no);
@@ -1489,7 +1359,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
     }
     for (int gni = 1; gni < (int)gtree.size(); ++gni) {
         GNode& g2 = gtree[gni];
-        if (g2.depth < 2 || !sv_length(g2.prefix)) continue;
+        if (g2.depth < 2 || !wsv_length(g2.prefix)) continue;
         if (collOwner[g2.gi] >= 0 && collOwner[g2.gi] != gni) continue;
         if (subB[gni].x < subA[gni].x) continue;   // nothing visible
         GView g{}; g.gi = g2.gi; g.gj = g2.gj; g.depth = g2.depth; g.prefix = g2.prefix;
@@ -1502,8 +1372,8 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         if (!g.collapsed) {   // expanded: bordered region + label (the compact-node pass draws the collapsed ones)
             ImU32 sc = group_color(g2.prefix);
             dl->AddRect(a, b, sc, 5.0f, 0, 1.5f);
-            WGPUStringView sn = g2.prefix; size_t off = 0; for (size_t i = 0; i < sv_length(sn); ++i) if (sn.data[i] == '.') off = i + 1;
-            char slbl[48]; std::snprintf(slbl, sizeof slbl, "[-] %.*s x%d", (int)(sv_length(sn) - off), sn.data + off, g2.gj - g2.gi);
+            WGPUStringView sn = g2.prefix; size_t off = 0; for (size_t i = 0; i < wsv_length(sn); ++i) if (sn.data[i] == '.') off = i + 1;
+            char slbl[48]; std::snprintf(slbl, sizeof slbl, "[-] %.*s x%d", (int)(wsv_length(sn) - off), sn.data + off, g2.gj - g2.gi);
             dl->AddText(ImVec2(a.x + 4, a.y + 1), sc, slbl);
         }
         // expanded aligns pins to the members they serve so edges run across, collapsed top-aligns them
@@ -1829,7 +1699,7 @@ static void rg_draw_dag(RenderGraph* rg, RenderGraphStorage& s)
         dl->AddRectFilled(a, b, IM_COL32(70, 70, 96, 255), 5.0f);
         dl->AddRect(a, b, IM_COL32(20, 20, 20, 255), 5.0f, 0, 1.0f);
         dl->AddLine(ImVec2(a.x, a.y + kHeaderH), ImVec2(b.x, a.y + kHeaderH), IM_COL32(255, 255, 255, 40));
-        char head[64]; std::snprintf(head, sizeof head, "[+] %.*s  x%d", (int)sv_length(g.prefix), g.prefix.data, g.gj - g.gi);
+        char head[64]; std::snprintf(head, sizeof head, "[+] %.*s  x%d", (int)wsv_length(g.prefix), g.prefix.data, g.gj - g.gi);
         dl->PushClipRect(a, ImVec2(b.x - 4, b.y), true);
         dl->AddText(ImVec2(a.x + 7, a.y + 4), IM_COL32(255, 255, 255, 255), head);
         dl->PopClipRect();
@@ -2124,21 +1994,6 @@ static ImU32 rg_slot_color(uint32_t slot)
     return pal[slot % (sizeof pal / sizeof pal[0])];
 }
 
-// short format tag for the slot row labels, display only
-static const char* rg_format_short(WGPUTextureFormat f)
-{
-    switch (f) {
-      case WGPUTextureFormat_RGBA8Unorm:   return "RGBA8";
-      case WGPUTextureFormat_BGRA8Unorm:   return "BGRA8";
-      case WGPUTextureFormat_RGBA16Float:  return "RGBA16F";
-      case WGPUTextureFormat_R32Float:     return "R32F";
-      case WGPUTextureFormat_Depth32Float: return "D32F";
-      case WGPUTextureFormat_Depth24Plus:  return "D24+";
-      case WGPUTextureFormat_R8Unorm:      return "R8";
-      default:                             return "tex";
-    }
-}
-
 // lifetime grid over the graph's own per-frame GPU textures, passes in execution order across the top.
 // each row is ONE dedicated allocation: aliasing ON gives a physical slot per row, with gaps where the
 // texture is free between occupants, aliasing OFF one row per realized transient. the row-count drop
@@ -2379,7 +2234,7 @@ static void rg_draw_lifetimes(RenderGraphStorage& s)
                 WGPUExtent3D      sz  = rowSize(rw);
                 WGPUTextureFormat fmt = rowFmt(rw);
                 WGPUTextureUsage  u   = rowUsage(rw);
-                ImGui::Text("- %s  %u x %u  -  %.1f KB", rg_format_short(fmt), sz.width, sz.height, texture_bytes(sz, fmt) / 1024.0);
+                ImGui::Text("- %s  %u x %u  -  %.1f KB", format_name_short(fmt), sz.width, sz.height, texture_bytes(sz, fmt) / 1024.0);
                 auto addu = [&](WGPUTextureUsage bit, const char* nm) { if (u & bit) addName(nm); };
                 addu(WGPUTextureUsage_RenderAttachment, "RenderAttachment");
                 addu(WGPUTextureUsage_TextureBinding,   "TextureBinding");
@@ -2524,7 +2379,7 @@ static void rg_draw_memory(RenderGraphStorage& s)
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn(); ImGui::Text("%.*s", (int)r->id.name.length, r->id.name.data ? r->id.name.data : "");
                 ImGui::TableNextColumn(); ImGui::Text("%ux%u", r->resolved.width, r->resolved.height);
-                ImGui::TableNextColumn(); ImGui::Text("%s", rg_format_name(r->format));
+                ImGui::TableNextColumn(); ImGui::Text("%s", format_name(r->format));
                 ImGui::TableNextColumn(); ImGui::Text("%ux", r->sampleCount);
             }
             ImGui::EndTable();
@@ -2561,7 +2416,7 @@ static void rg_draw_memory(RenderGraphStorage& s)
             ImGui::TableNextColumn(); ImGui::Text("%u", e.sig.mipLevelCount);
             ImGui::TableNextColumn(); ImGui::Text("%u", e.sig.size.depthOrArrayLayers);
             ImGui::TableNextColumn(); ImGui::Text("%ux", e.sig.sampleCount);
-            ImGui::TableNextColumn(); ImGui::Text("%s", rg_format_name(e.sig.format));
+            ImGui::TableNextColumn(); ImGui::Text("%s", format_name(e.sig.format));
             ImGui::TableNextColumn(); ImGui::Text("%s", ub);
             ImGui::TableNextColumn();
             if (eb) { char mb[24]; rg_bytes_str(eb, mb, sizeof mb); ImGui::Text("%s", mb); }
@@ -2629,7 +2484,7 @@ static void rg_draw_memory(RenderGraphStorage& s)
             ImGui::TableNextColumn(); ImGui::Text("%u", e.sig.mipLevelCount);
             ImGui::TableNextColumn(); ImGui::Text("%u x%u", e.sig.size.depthOrArrayLayers, e.layers);
             ImGui::TableNextColumn(); ImGui::Text("%ux", e.sig.sampleCount);
-            ImGui::TableNextColumn(); ImGui::Text("%s", rg_format_name(e.sig.format));
+            ImGui::TableNextColumn(); ImGui::Text("%s", format_name(e.sig.format));
             ImGui::TableNextColumn(); ImGui::Text("%s", ub);
             ImGui::TableNextColumn();
             if (eb) { char mb[24]; rg_bytes_str(eb, mb, sizeof mb); ImGui::Text("%s", mb); }
@@ -2703,7 +2558,7 @@ static void rg_draw_memory(RenderGraphStorage& s)
                 (unsigned long long)r.bufferSize);
         else
             ImGui::TextColored(col, "f%-6llu  %-6s  %ux%u  %s", (unsigned long long)r.frame, create ? "CREATE" : "evict",
-                r.size.width, r.size.height, rg_format_name(r.format));
+                r.size.width, r.size.height, format_name(r.format));
     }
     if (shown == 0) ImGui::TextDisabled("(no events yet)");
     ImGui::EndChild();

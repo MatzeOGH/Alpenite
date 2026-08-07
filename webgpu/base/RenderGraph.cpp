@@ -19,6 +19,7 @@
 #include "RenderGraph.h"
 #include "RenderGraph_internal.h"
 #include "gpu_utils.h"
+#include "wgpu_string.h"
 
 #include <QtAssert>
 #include <QDebug>
@@ -59,17 +60,10 @@ using namespace Internal;
 
 namespace Internal {
 
-size_t sv_length(WGPUStringView s) { return (s.length == WGPU_STRLEN) ? (s.data ? std::strlen(s.data) : 0) : s.length; }
-
-bool sv_eq(WGPUStringView a, WGPUStringView b)
-{
-    size_t na = sv_length(a), nb = sv_length(b);
-    return na == nb && (na == 0 || std::memcmp(a.data, b.data, na) == 0);
-}
-
+// the span before the first '.', empty if none. passes/resources use dotted names to form groups.
 WGPUStringView group_prefix(WGPUStringView name)
 {
-    size_t n = sv_length(name);
+    size_t n = webgpu::wsv_length(name);
     for (size_t i = 0; i < n; ++i)
         if (name.data[i] == '.')
             return WGPUStringView { .data = name.data, .length = i };
@@ -799,174 +793,6 @@ WGPUStringView pass_name_at(PassNode* head, uint32_t idx)
         --idx;
     }
     return WGPUStringView {};
-}
-
-// block size in texels (1x1 for uncompressed) plus bytes per block
-TexelBlock format_block(WGPUTextureFormat f)
-{
-    switch (f)
-    {
-    // 8-bit
-    case WGPUTextureFormat_R8Unorm:
-    case WGPUTextureFormat_R8Snorm:
-    case WGPUTextureFormat_R8Uint:
-    case WGPUTextureFormat_R8Sint:
-    case WGPUTextureFormat_Stencil8:
-        return { 1, 1, 1 };
-
-    // 16-bit
-    case WGPUTextureFormat_R16Uint:
-    case WGPUTextureFormat_R16Sint:
-    case WGPUTextureFormat_R16Float:
-
-    case WGPUTextureFormat_RG8Unorm:
-    case WGPUTextureFormat_RG8Snorm:
-    case WGPUTextureFormat_RG8Uint:
-    case WGPUTextureFormat_RG8Sint:
-
-    case WGPUTextureFormat_Depth16Unorm:
-        return { 1, 1, 2 };
-
-    // 32-bit
-    case WGPUTextureFormat_R32Float:
-    case WGPUTextureFormat_R32Uint:
-    case WGPUTextureFormat_R32Sint:
-
-    case WGPUTextureFormat_RG16Uint:
-    case WGPUTextureFormat_RG16Sint:
-    case WGPUTextureFormat_RG16Float:
-
-    case WGPUTextureFormat_RGBA8Unorm:
-    case WGPUTextureFormat_RGBA8UnormSrgb:
-    case WGPUTextureFormat_RGBA8Snorm:
-    case WGPUTextureFormat_RGBA8Uint:
-    case WGPUTextureFormat_RGBA8Sint:
-
-    case WGPUTextureFormat_BGRA8Unorm:
-    case WGPUTextureFormat_BGRA8UnormSrgb:
-
-    case WGPUTextureFormat_RGB10A2Uint:
-    case WGPUTextureFormat_RGB10A2Unorm:
-    case WGPUTextureFormat_RG11B10Ufloat:
-
-    case WGPUTextureFormat_Depth24Plus:
-    case WGPUTextureFormat_Depth32Float:
-        return { 1, 1, 4 };
-
-    // 64-bit
-    case WGPUTextureFormat_RG32Float:
-    case WGPUTextureFormat_RG32Uint:
-    case WGPUTextureFormat_RG32Sint:
-
-    case WGPUTextureFormat_RGBA16Uint:
-    case WGPUTextureFormat_RGBA16Sint:
-    case WGPUTextureFormat_RGBA16Float:
-
-    case WGPUTextureFormat_Depth24PlusStencil8:
-    case WGPUTextureFormat_Depth32FloatStencil8:
-        return { 1, 1, 8 };
-
-    // 128-bit
-    case WGPUTextureFormat_RGBA32Float:
-    case WGPUTextureFormat_RGBA32Uint:
-    case WGPUTextureFormat_RGBA32Sint:
-        return { 1, 1, 16 };
-
-
-    // BC1 / BC4: 8 bytes per 4x4 block
-    case WGPUTextureFormat_BC1RGBAUnorm:
-    case WGPUTextureFormat_BC1RGBAUnormSrgb:
-    case WGPUTextureFormat_BC4RUnorm:
-    case WGPUTextureFormat_BC4RSnorm:
-        return { 4, 4, 8 };
-
-    // BC2/3/5/6H/7: 16 bytes per 4x4 block
-    case WGPUTextureFormat_BC2RGBAUnorm:
-    case WGPUTextureFormat_BC2RGBAUnormSrgb:
-    case WGPUTextureFormat_BC3RGBAUnorm:
-    case WGPUTextureFormat_BC3RGBAUnormSrgb:
-    case WGPUTextureFormat_BC5RGUnorm:
-    case WGPUTextureFormat_BC5RGSnorm:
-    case WGPUTextureFormat_BC6HRGBUfloat:
-    case WGPUTextureFormat_BC6HRGBFloat:
-    case WGPUTextureFormat_BC7RGBAUnorm:
-    case WGPUTextureFormat_BC7RGBAUnormSrgb:
-        return { 4, 4, 16 };
-
-
-    // ETC2 RGB8 / RGB8A1 and EAC R11: 8 bytes per 4x4 block
-    case WGPUTextureFormat_ETC2RGB8Unorm:
-    case WGPUTextureFormat_ETC2RGB8UnormSrgb:
-    case WGPUTextureFormat_ETC2RGB8A1Unorm:
-    case WGPUTextureFormat_ETC2RGB8A1UnormSrgb:
-    case WGPUTextureFormat_EACR11Unorm:
-    case WGPUTextureFormat_EACR11Snorm:
-        return { 4, 4, 8 };
-
-    // ETC2 RGBA8 and EAC RG11: 16 bytes per 4x4 block
-    case WGPUTextureFormat_ETC2RGBA8Unorm:
-    case WGPUTextureFormat_ETC2RGBA8UnormSrgb:
-    case WGPUTextureFormat_EACRG11Unorm:
-    case WGPUTextureFormat_EACRG11Snorm:
-        return { 4, 4, 16 };
-
-
-    // ASTC: always 16 bytes per block, block footprint read straight off the enum name
-    case WGPUTextureFormat_ASTC4x4Unorm:
-    case WGPUTextureFormat_ASTC4x4UnormSrgb:   return { 4, 4, 16 };
-    case WGPUTextureFormat_ASTC5x4Unorm:
-    case WGPUTextureFormat_ASTC5x4UnormSrgb:   return { 5, 4, 16 };
-    case WGPUTextureFormat_ASTC5x5Unorm:
-    case WGPUTextureFormat_ASTC5x5UnormSrgb:   return { 5, 5, 16 };
-    case WGPUTextureFormat_ASTC6x5Unorm:
-    case WGPUTextureFormat_ASTC6x5UnormSrgb:   return { 6, 5, 16 };
-    case WGPUTextureFormat_ASTC6x6Unorm:
-    case WGPUTextureFormat_ASTC6x6UnormSrgb:   return { 6, 6, 16 };
-    case WGPUTextureFormat_ASTC8x5Unorm:
-    case WGPUTextureFormat_ASTC8x5UnormSrgb:   return { 8, 5, 16 };
-    case WGPUTextureFormat_ASTC8x6Unorm:
-    case WGPUTextureFormat_ASTC8x6UnormSrgb:   return { 8, 6, 16 };
-    case WGPUTextureFormat_ASTC8x8Unorm:
-    case WGPUTextureFormat_ASTC8x8UnormSrgb:   return { 8, 8, 16 };
-    case WGPUTextureFormat_ASTC10x5Unorm:
-    case WGPUTextureFormat_ASTC10x5UnormSrgb:  return { 10, 5, 16 };
-    case WGPUTextureFormat_ASTC10x6Unorm:
-    case WGPUTextureFormat_ASTC10x6UnormSrgb:  return { 10, 6, 16 };
-    case WGPUTextureFormat_ASTC10x8Unorm:
-    case WGPUTextureFormat_ASTC10x8UnormSrgb:  return { 10, 8, 16 };
-    case WGPUTextureFormat_ASTC10x10Unorm:
-    case WGPUTextureFormat_ASTC10x10UnormSrgb: return { 10, 10, 16 };
-    case WGPUTextureFormat_ASTC12x10Unorm:
-    case WGPUTextureFormat_ASTC12x10UnormSrgb: return { 12, 10, 16 };
-    case WGPUTextureFormat_ASTC12x12Unorm:
-    case WGPUTextureFormat_ASTC12x12UnormSrgb: return { 12, 12, 16 };
-
-    default:
-        break;
-    }
-
-    return { 0, 0, 0 };
-}
-
-// exact size of one texture
-uint64_t texture_bytes(WGPUExtent3D size, WGPUTextureFormat format, uint32_t mipLevelCount,
-    uint32_t sampleCount, WGPUTextureDimension dim)
-{
-    const TexelBlock b = format_block(format);
-    if (!b.bytes) return 0;
-    const bool is3D = dim == WGPUTextureDimension_3D;
-    const uint32_t layers = is3D ? 1u : (size.depthOrArrayLayers ? size.depthOrArrayLayers : 1);
-    const uint32_t samples = sampleCount ? sampleCount : 1;
-    uint64_t total = 0;
-    for (uint32_t m = 0; m < mipLevelCount; ++m) {
-        const uint32_t w = (size.width  >> m) ? (size.width  >> m) : 1u;
-        const uint32_t h = (size.height >> m) ? (size.height >> m) : 1u;
-        const uint32_t d = is3D ? ((size.depthOrArrayLayers >> m) ? (size.depthOrArrayLayers >> m) : 1u) : 1u;
-        const uint32_t bw = (w + b.w - 1) / b.w;
-        const uint32_t bh = (h + b.h - 1) / b.h;
-        total += (uint64_t)bw * bh * d * layers * samples * b.bytes;
-    }
-    return total;
 }
 
 } // namespace Internal
@@ -2930,10 +2756,10 @@ void RenderGraph::execute(WGPUDevice device, WGPUQueue queue, WGPUCommandEncoder
     for (PassNode* p = s.m_passes; p; p = p->next) {
         Q_ASSERT(p->kind != PassKind::None && "a pass of kind None is not allowed");
         WGPUStringView grp = group_prefix(p->id.name);
-        if (!sv_eq(grp, openGroup)) {
-            if (sv_length(openGroup))
+        if (!(grp == openGroup)) {
+            if (webgpu::wsv_length(openGroup))
                 wgpuCommandEncoderPopDebugGroup(encoder);
-            if (sv_length(grp))
+            if (webgpu::wsv_length(grp))
                 wgpuCommandEncoderPushDebugGroup(encoder, grp);
             openGroup = grp;
         }
@@ -3062,7 +2888,7 @@ void RenderGraph::execute(WGPUDevice device, WGPUQueue queue, WGPUCommandEncoder
         for (uint32_t i = 0; i < s.viewScratchN; ++i)
             wgpuTextureViewRelease(s.viewScratch[i]);
     }
-    if (sv_length(openGroup))
+    if (webgpu::wsv_length(openGroup))
         wgpuCommandEncoderPopDebugGroup(encoder); // close the last open group
 
     // resolve the queries we wrote into the staging buffer, then stage them into the chosen ring slot. the
