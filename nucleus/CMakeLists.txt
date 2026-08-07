@@ -208,4 +208,6 @@ else()
     # imgui does not compile with -Werror. so we have to make it private for now.
     # better solutions welcome
     target_compile_options(nucleus PRIVATE -Wall -Wextra -pedantic -Werror)
+    # PUBLIC so every target linking nucleus inherits the suppression
+    target_compile_options(nucleus PUBLIC -Wno-missing-field-initializers)
 endif()
