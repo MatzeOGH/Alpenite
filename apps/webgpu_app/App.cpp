@@ -255,7 +255,8 @@ void App::render()
         m_gputimer->stop(encoder);
 
     wgpuTextureViewRelease(surface_texture_view);
-
+    wgpuTextureRelease(surface_texture.texture);
+    
     WGPUCommandBufferDescriptor cmd_buffer_descriptor {};
     cmd_buffer_descriptor.label = WGPUStringView { .data = "Command buffer", .length = WGPU_STRLEN };
     WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder, &cmd_buffer_descriptor);
