@@ -160,12 +160,12 @@ void Window::resize_framebuffer(int w, int h)
     m_context->overlay_renderer()->resize(w, h);
 }
 
-void Window::paint(webgpu::rg::RenderGraph* rg, webgpu::rg::TextureHandle target)
+void Window::paint(webgpu::rg::RenderGraph* rg, webgpu::rg::TextureHandle target, glm::uvec2 size)
 {
     m_needs_redraw = false;
 
-    const uint32_t w = uint32_t(m_swapchain_size.x);
-    const uint32_t h = uint32_t(m_swapchain_size.y);
+    const uint32_t w = size.x;
+    const uint32_t h = size.y;
 
     // TODO: only update on change?
     m_shared_config_ubo->data = m_context->shared_config();

@@ -237,7 +237,7 @@ void App::render()
                 .texture = m_scene_texture->handle(),
             });
 
-        m_webgpu_window->paint(rg, scene);
+        m_webgpu_window->paint(rg, scene, {m_viewport_size.x, m_viewport_size.y});
 
         for (webgpu::rg::ErrorMessage* error = rg->compile(); error; error = error->next)
             qCritical("%.*s", error->message.length, error->message.data);

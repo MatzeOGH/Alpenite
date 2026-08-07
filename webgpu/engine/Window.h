@@ -54,7 +54,7 @@ public:
     void ready();
 
 
-    void paint(webgpu::rg::RenderGraph* rg, webgpu::rg::TextureHandle target);
+    void paint(webgpu::rg::RenderGraph* rg, webgpu::rg::TextureHandle target, glm::uvec2 size);
 
     void paint([[maybe_unused]] QOpenGLFramebufferObject* framebuffer = nullptr) override { throw std::runtime_error("Not implemented"); }
 
