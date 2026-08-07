@@ -240,7 +240,7 @@ void App::render()
         m_webgpu_window->paint(rg, scene, {m_viewport_size.x, m_viewport_size.y});
 
         for (webgpu::rg::ErrorMessage* error = rg->compile(); error; error = error->next)
-            qCritical("%.*s", error->message.length, error->message.data);
+            qCritical("%.*s", static_cast<int>(error->message.length), error->message.data);
 
         rg->execute(m_device, m_queue, encoder, false);
         rg->collect_gpu_timings();
