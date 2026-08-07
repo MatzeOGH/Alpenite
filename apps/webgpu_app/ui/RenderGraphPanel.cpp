@@ -2896,7 +2896,7 @@ void RenderGraphPanel::draw()
     ImGui::Begin("RenderGraph");
 
     if (!rg) {
-        ImGui::TextUnformatted("Render graph inactive (legacy render path).");
+        ImGui::TextUnformatted("Render graph inactive.");
         ImGui::End();
         return;
     }

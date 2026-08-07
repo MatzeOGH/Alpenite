@@ -55,8 +55,7 @@ public:
         const WGPUBindGroup& shared_config_bg,
         const WGPUBindGroup& camera_bg,
         webgpu::rg::TextureHandle source,
-        webgpu::rg::TextureHandle target,
-        glm::uvec2 output_size) = 0;
+        webgpu::rg::TextureHandle target) = 0;
 };
 
 } // namespace webgpu_engine

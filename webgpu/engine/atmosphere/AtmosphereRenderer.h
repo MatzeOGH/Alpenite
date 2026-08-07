@@ -23,7 +23,6 @@
 
 #include <QObject>
 #include <webgpu/base/Context.h>
-#include <webgpu/base/Framebuffer.h>
 #include <webgpu/base/raii/Pipeline.h>
 #include <webgpu/base/raii/TextureView.h>
 #include <webgpu/webgpu.h>
@@ -45,7 +44,7 @@ public:
 private:
     webgpu::Context* m_ctx = nullptr;
     std::unique_ptr<webgpu::raii::GenericRenderPipeline> m_pipeline;
-    std::unique_ptr<webgpu::Framebuffer> m_atmosphere_framebuffer;
+    uint32_t m_height = 0;
 };
 
 } // namespace webgpu_engine

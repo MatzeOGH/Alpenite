@@ -51,19 +51,12 @@ void AtmosphereRenderer::init(webgpu::Context& ctx)
     });
 }
 
-void AtmosphereRenderer::resize(int /*w*/, int h)
-{
-    webgpu::FramebufferFormat format(m_pipeline->framebuffer_format());
-    format.size = glm::uvec2(1, h);
-    m_atmosphere_framebuffer = std::make_unique<webgpu::Framebuffer>(m_ctx->device(), format);
-}
+void AtmosphereRenderer::resize(int /*w*/, int h) { m_height = uint32_t(h); }
 
 webgpu::rg::TextureHandle AtmosphereRenderer::draw(webgpu::rg::RenderGraph* rg, const WGPUBindGroup& camera_bind_group)
 {
-    auto s = m_atmosphere_framebuffer->size();
-
     auto renderTarget = rg->create_transient_texture("atmosphere_framebuffer",
-        webgpu::rg::texture_2d(WGPUTextureFormat_RGBA8Unorm, s.x, s.y));
+        webgpu::rg::texture_2d(WGPUTextureFormat_RGBA8Unorm, 1, m_height));
 
     rg->add_pass("Atmosphere", webgpu::rg::PassKind::Graphics, 
         [&](webgpu::rg::PassBuilder& b) {

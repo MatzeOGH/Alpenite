@@ -81,7 +81,7 @@ void TileDebugOverlay::init(Context& context)
         m_pipeline = std::make_unique<webgpu::raii::CombinedComputePipeline>(device,
             reg.shader("gbuffer_debug_compute"),
             std::vector<const webgpu::raii::BindGroupLayout*> {
-                &reg.bind_group_layout("tile_debug_overlay"),
+                m_bind_group_layout = &reg.bind_group_layout("tile_debug_overlay"),
             },
             "tile debug compute pipeline");
     });
@@ -109,8 +109,7 @@ void TileDebugOverlay::draw(webgpu::rg::RenderGraph* render_graph,
     const WGPUBindGroup& /*shared_config_bg*/,
     const WGPUBindGroup& /*camera_bg*/,
     webgpu::rg::TextureHandle source,
-    webgpu::rg::TextureHandle target,
-    glm::uvec2 output_size)
+    webgpu::rg::TextureHandle target)
 {
     if (!m_pipeline)
         return;
@@ -121,9 +120,9 @@ void TileDebugOverlay::draw(webgpu::rg::RenderGraph* render_graph,
             b.storage_write(target);
             b.sampled(source);
         },
-        [this, overlay, source, target, output_size](webgpu::rg::PassContext& c) {
+        [this, overlay, source, target](webgpu::rg::PassContext& c) {
 
-            webgpu::raii::BindGroup bind_group(c.device, m_ctx->resource_registry().bind_group_layout("tile_debug_overlay"),
+            webgpu::raii::BindGroup bind_group(c.device, *m_bind_group_layout,
                 {
                     c.bind(0, overlay),
                     m_settings_uniform->raw_buffer().create_bind_group_entry(1),
@@ -134,7 +133,8 @@ void TileDebugOverlay::draw(webgpu::rg::RenderGraph* render_graph,
 
             wgpuComputePassEncoderSetPipeline(c.compute_pass, m_pipeline->handle());
             wgpuComputePassEncoderSetBindGroup(c.compute_pass, 0, bind_group.handle(), 0, nullptr);
-            wgpuComputePassEncoderDispatchWorkgroups(c.compute_pass, (output_size.x + 15u) / 16u, (output_size.y + 15u) / 16u, 1);
+            const WGPUExtent3D size = c.texture_size(target);
+            wgpuComputePassEncoderDispatchWorkgroups(c.compute_pass, (size.width + 15u) / 16u, (size.height + 15u) / 16u, 1);
         });
 }
 

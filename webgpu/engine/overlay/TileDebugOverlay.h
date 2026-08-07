@@ -58,8 +58,7 @@ public:
         const WGPUBindGroup& shared_config_bg,
         const WGPUBindGroup& camera_bg,
         webgpu::rg::TextureHandle source,
-        webgpu::rg::TextureHandle target,
-        glm::uvec2 output_size) override;
+        webgpu::rg::TextureHandle target) override;
 
     Settings settings;
 
@@ -71,6 +70,7 @@ private:
     webgpu::Context* m_ctx = nullptr;
     Context* m_engine_ctx = nullptr; // for shared_config access (overlay_mode)
     std::unique_ptr<webgpu::raii::CombinedComputePipeline> m_pipeline;
+    const webgpu::raii::BindGroupLayout* m_bind_group_layout = nullptr;
     std::unique_ptr<webgpu::Buffer<GpuSettings>> m_settings_uniform;
 };
 

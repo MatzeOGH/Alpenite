@@ -130,7 +130,7 @@ void TextureOverlay::init(Context& context)
             std::vector<const webgpu::raii::BindGroupLayout*> {
                 &reg.bind_group_layout("shared_config"),
                 &reg.bind_group_layout("camera"),
-                &reg.bind_group_layout("texture_overlay"),
+                m_bind_group_layout = &reg.bind_group_layout("texture_overlay"),
             });
     });
 
@@ -239,8 +239,7 @@ void TextureOverlay::draw(webgpu::rg::RenderGraph* render_graph,
     const WGPUBindGroup& shared_config_bg,
     const WGPUBindGroup& camera_bg,
     webgpu::rg::TextureHandle source,
-    webgpu::rg::TextureHandle target,
-    glm::uvec2 /*output_size*/)
+    webgpu::rg::TextureHandle target)
 {
     if (!m_pipeline)
         return;
@@ -255,7 +254,7 @@ void TextureOverlay::draw(webgpu::rg::RenderGraph* render_graph,
             const webgpu::raii::TextureWithSampler* raster = m_linked_texture ? m_linked_texture : m_overlay_texture.get();
             assert(raster && m_pipeline);
 
-            webgpu::raii::BindGroup bind_group(c.device, m_ctx->resource_registry().bind_group_layout("texture_overlay"),
+            webgpu::raii::BindGroup bind_group(c.device, *m_bind_group_layout,
                 {
                     c.bind(0, position),
                     m_settings_uniform->raw_buffer().create_bind_group_entry(1),

@@ -58,16 +58,16 @@ public:
     void add_world_positions(const std::vector<glm::vec4>& world_positions, const glm::vec4& color = { 1.0f, 0.0f, 0.0f, 1.0f });
 
     void render(webgpu::rg::RenderGraph* rg,
-        webgpu::rg::TextureHandle target_color,
-        webgpu::rg::TextureHandle gbuffer_depth,
+        webgpu::rg::TextureHandle color,
+        webgpu::rg::TextureHandle depth,
         const WGPUBindGroup& shared_config,
-        const WGPUBindGroup& camera_config,
-        const WGPUBindGroup& depth_texture);
+        const WGPUBindGroup& camera_config);
 
 private:
     webgpu::Context* m_ctx;
 
     std::unique_ptr<webgpu::raii::RenderPipeline> m_pipeline;
+    const webgpu::raii::BindGroupLayout* m_depth_texture_layout = nullptr;
 
     std::vector<std::unique_ptr<webgpu::raii::RawBuffer<glm::fvec4>>> m_position_buffers;
     std::vector<std::unique_ptr<webgpu::Buffer<TrackRenderer::LineConfig>>> m_line_config_buffers;

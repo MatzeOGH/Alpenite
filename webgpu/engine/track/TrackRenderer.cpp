@@ -97,7 +97,7 @@ void TrackRenderer::init(webgpu::Context& ctx)
         std::vector<WGPUBindGroupLayout> bind_group_layout_handles {
             reg.bind_group_layout("shared_config").handle(),
             reg.bind_group_layout("camera").handle(),
-            reg.bind_group_layout("depth_texture").handle(),
+            (m_depth_texture_layout = &reg.bind_group_layout("depth_texture"))->handle(),
             reg.bind_group_layout("lines").handle(),
         };
         webgpu::raii::PipelineLayout layout(dev, bind_group_layout_handles);
@@ -154,22 +154,24 @@ void TrackRenderer::add_world_positions(const std::vector<glm::vec4>& world_posi
 }
 
 void TrackRenderer::render(webgpu::rg::RenderGraph* rg,
-    webgpu::rg::TextureHandle target_color,
-    webgpu::rg::TextureHandle gbuffer_depth,
+    webgpu::rg::TextureHandle color,
+    webgpu::rg::TextureHandle depth,
     const WGPUBindGroup& shared_config,
-    const WGPUBindGroup& camera_config,
-    const WGPUBindGroup& depth_texture)
+    const WGPUBindGroup& camera_config)
 {
     rg->add_pass("Track", webgpu::rg::PassKind::Graphics,
-        [target_color, gbuffer_depth](webgpu::rg::PassBuilder& b) {
-            b.color(target_color, 0, { .load = WGPULoadOp_Load });
-            b.sampled(gbuffer_depth);
+        [color, depth](webgpu::rg::PassBuilder& b) {
+            b.color(color, 0, { .load = WGPULoadOp_Load });
+            b.sampled(depth);
         },
-        [this, shared_config, camera_config, depth_texture](webgpu::rg::PassContext& c) {
+        [this, depth, shared_config, camera_config](webgpu::rg::PassContext& c) {
+            webgpu::raii::BindGroup depth_bind_group(c.device, *m_depth_texture_layout,
+                { c.bind(0, depth) }, "TrackDepth");
+
             wgpuRenderPassEncoderSetPipeline(c.render_pass, m_pipeline->handle());
             wgpuRenderPassEncoderSetBindGroup(c.render_pass, 0, shared_config, 0, nullptr);
             wgpuRenderPassEncoderSetBindGroup(c.render_pass, 1, camera_config, 0, nullptr);
-            wgpuRenderPassEncoderSetBindGroup(c.render_pass, 2, depth_texture, 0, nullptr);
+            wgpuRenderPassEncoderSetBindGroup(c.render_pass, 2, depth_bind_group.handle(), 0, nullptr);
             for (size_t i = 0; i < m_bind_groups.size(); i++) {
                 wgpuRenderPassEncoderSetBindGroup(c.render_pass, 3, m_bind_groups.at(i)->handle(), 0, nullptr);
                 wgpuRenderPassEncoderDraw(c.render_pass, uint32_t(m_position_buffers.at(i)->size()), 1, 0, 0);

@@ -92,7 +92,6 @@ public:
     };
 
     GraphOutput draw(webgpu::rg::RenderGraph* rg,
-        const WGPUBindGroup& depth_texture_bind_group,
         const WGPUBindGroup& shared_config_bind_group,
         const nucleus::camera::Definition& camera,
         uint32_t frame_number,
@@ -177,23 +176,16 @@ private:
 
     glm::uvec2 m_output_lo_resolution = {};
     glm::uvec2 m_output_hi_resolution = {};
-    std::unique_ptr<webgpu::raii::Texture> m_clouds_lo_color_texture;
-    std::unique_ptr<webgpu::raii::TextureView> m_clouds_lo_color_texture_view;
-    std::unique_ptr<webgpu::raii::Texture> m_clouds_lo_depth_texture;
-    std::unique_ptr<webgpu::raii::TextureView> m_clouds_lo_depth_texture_view;
-    std::unique_ptr<webgpu::raii::Texture> m_clouds_hi_color_texture_a;
-    std::unique_ptr<webgpu::raii::TextureView> m_clouds_hi_color_texture_view_a;
-    std::unique_ptr<webgpu::raii::Texture> m_clouds_hi_color_texture_b;
-    std::unique_ptr<webgpu::raii::TextureView> m_clouds_hi_color_texture_view_b;
     std::unique_ptr<webgpu::raii::Sampler> m_linear_sampler;
 
-    std::unique_ptr<webgpu::raii::BindGroup> m_render_clouds_bind_group;
-    std::unique_ptr<webgpu::raii::BindGroup> m_upscale_clouds_bind_group_a;
-    std::unique_ptr<webgpu::raii::BindGroup> m_upscale_clouds_bind_group_b;
     std::unique_ptr<webgpu::raii::BindGroup> m_camera_bind_group;
 
     std::unique_ptr<webgpu::raii::CombinedComputePipeline> m_render_clouds_pipeline;
     std::unique_ptr<webgpu::raii::CombinedComputePipeline> m_upscale_clouds_pipeline;
+
+    const webgpu::raii::BindGroupLayout* m_render_clouds_layout = nullptr;
+    const webgpu::raii::BindGroupLayout* m_depth_texture_layout = nullptr;
+    const webgpu::raii::BindGroupLayout* m_upscale_clouds_layout = nullptr;
 
     uint32_t m_stable_frames = 0;
 

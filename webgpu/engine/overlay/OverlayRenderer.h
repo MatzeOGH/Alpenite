@@ -20,12 +20,9 @@
 
 #include "Overlay.h"
 #include <QObject>
-#include <array>
 #include <memory>
 #include <vector>
 #include <webgpu/base/Context.h>
-#include <webgpu/base/raii/TextureView.h>
-#include <webgpu/base/raii/TextureWithSampler.h>
 #include <webgpu/webgpu.h>
 
 namespace webgpu_engine {
@@ -63,9 +60,6 @@ public:
         const WGPUBindGroup& camera_bg);
 
 private:
-    using TexturePair = std::array<std::unique_ptr<webgpu::raii::TextureWithSampler>, 2>;
-
-    std::unique_ptr<webgpu::raii::TextureWithSampler> create_output_texture(int w, int h, const char* label) const;
     // Refill m_pre_overlays / m_post_overlays from m_overlays (z_index < 0 -> pre otherwise post),
     // preserving order.
     void rebucket();
@@ -76,9 +70,6 @@ private:
     // Per-bucket, non-owning views into m_overlays (non-canonical, rebuilt by rebucket()), iterated directly by draw().
     std::vector<Overlay*> m_pre_overlays; // z_index < 0
     std::vector<Overlay*> m_post_overlays; // z_index >= 0
-    // Ping-pong textures per bucket. Index 0 is the persistent result
-    TexturePair m_pre;
-    TexturePair m_post;
 };
 
 } // namespace webgpu_engine

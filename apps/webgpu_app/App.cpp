@@ -179,12 +179,12 @@ void App::poll_events()
 
 void App::render()
 {
+    m_cputimer->start();
+
     // Do nothing, this checks for ongoing asynchronous operations and call their callbacks
 
     WGPUSurfaceTexture surface_texture;
     wgpuSurfaceGetCurrentTexture(m_surface, &surface_texture);
-
-    m_cputimer->start();
 
     if (surface_texture.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal
         && surface_texture.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
@@ -218,72 +218,38 @@ void App::render()
 
     m_frame_count++;
 
-    webgpu::rg::begin_frame(m_context->graph_allocator);
-    webgpu::rg::RenderGraph* rg = webgpu::rg::start_recording(m_context->graph_allocator);
-    g_render_graph = rg; // pipes the rg to the RenderGraphPanel
-
-    // import the swapchain texture as an extern dependency
-    auto swapchain = rg->import_texture("swapchain",
-        { 
-            .view = surface_texture_view,
-            .size = { m_viewport_size.x, m_viewport_size.y, 1 },
-            .format = viewDescriptor.format
-        }
-    );
-
     bool needsRedraw = m_webgpu_window->needs_redraw() || m_force_repaint || m_force_repaint_once;
     m_force_repaint_once = false;
-    if(needsRedraw) m_repaint_count++;
 
-    // construct the rendre graph
-    auto result = m_webgpu_window->paint(rg);
+    // Only run the render graph when something changed
+    if (needsRedraw) {
+        m_repaint_count++;
 
-    // Blit the scene into the swapchain
-    rg->add_pass("blit", webgpu::rg::PassKind::Graphics,
-        [swapchain, result](webgpu::rg::PassBuilder& b) {
-            b.color(swapchain, 0, { .load = WGPULoadOp_Clear });
-            b.sampled(result);
-        },
-        [&](webgpu::rg::PassContext& c) {
+        webgpu::rg::begin_frame(m_context->graph_allocator);
+        webgpu::rg::RenderGraph* rg = webgpu::rg::start_recording(m_context->graph_allocator);
+        g_render_graph = rg; // pipes the rg to the RenderGraphPanel
 
-            webgpu::raii::BindGroup blit_bind_group(c.device, *m_gui_bind_group_layout,
-                {
-                    c.bind(0, result),
-                    m_gui_ubo->create_bind_group_entry(1),
-                },
-                "blit");
+        auto scene = rg->import_texture("scene",
+            {
+                .view = m_scene_texture_view->handle(),
+                .size = { m_viewport_size.x, m_viewport_size.y, 1 },
+                .format = m_surface_texture_format,
+                .texture = m_scene_texture->handle(),
+            });
 
-            wgpuRenderPassEncoderSetPipeline(c.render_pass, m_gui_pipeline.get()->pipeline().handle());
-            wgpuRenderPassEncoderSetBindGroup(c.render_pass, 0, blit_bind_group.handle(), 0, nullptr);
-            wgpuRenderPassEncoderDraw(c.render_pass, 3, 1, 0, 0);
-        });
+        m_webgpu_window->paint(rg, scene);
 
-    for (webgpu::rg::ErrorMessage* error = rg->compile(); error; error = error->next)
-        qCritical("%.*s", error->message.length, error->message.data);
+        for (webgpu::rg::ErrorMessage* error = rg->compile(); error; error = error->next)
+            qCritical("%.*s", error->message.length, error->message.data);
 
-    rg->execute(m_device, m_queue, encoder, false);
-    rg->collect_gpu_timings();
+        rg->execute(m_device, m_queue, encoder, false);
+        rg->collect_gpu_timings();
 
-    // TODO: move this to the m_gui_manager
-    {
-        WGPURenderPassColorAttachment gui_color_attachment {};
-        gui_color_attachment.view = surface_texture_view;
-        gui_color_attachment.loadOp = WGPULoadOp_Load;
-        gui_color_attachment.storeOp = WGPUStoreOp_Store;
-        gui_color_attachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-
-        WGPURenderPassDescriptor gui_pass_desc {};
-        gui_pass_desc.label = WGPUStringView { .data = "imgui pass", .length = WGPU_STRLEN };
-        gui_pass_desc.colorAttachmentCount = 1;
-        gui_pass_desc.colorAttachments = &gui_color_attachment;
-
-        WGPURenderPassEncoder gui_pass = wgpuCommandEncoderBeginRenderPass(encoder, &gui_pass_desc);
-
-        m_gui_manager->render(gui_pass);
-
-        wgpuRenderPassEncoderEnd(gui_pass);
-        wgpuRenderPassEncoderRelease(gui_pass);
+        webgpu::rg::end_frame(m_context->graph_allocator);
     }
+
+
+    m_gui_manager->render(encoder, surface_texture_view, m_scene_texture_view->create_bind_group_entry(0));
 
     if (webgpu::isTimingSupported())
         m_gputimer->stop(encoder);
@@ -301,9 +267,6 @@ void App::render()
         m_gputimer->resolve();
 
     m_cputimer->stop();
-
-    // end the render-graph frame
-    webgpu::rg::end_frame(m_context->graph_allocator);
 
 #ifndef __EMSCRIPTEN__
     // Surface present in the WEB is handled by the browser!
@@ -367,77 +330,6 @@ void App::start()
         new_definition.set_viewport_size(m_viewport_size);
         m_camera_controller->set_model_matrix(new_definition);
     }
-
-    qDebug() << "Create GUI Pipeline...";
-    m_gui_ubo = std::make_unique<webgpu::raii::RawBuffer<App::GuiPipelineUBO>>(m_device, WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst, 1, "gui ubo");
-    m_gui_ubo->write(m_queue, &m_gui_ubo_data);
-
-    webgpu::FramebufferFormat format {};
-    format.color_formats.emplace_back(m_surface_texture_format);
-
-    WGPUBindGroupLayoutEntry backbuffer_texture_entry {};
-    backbuffer_texture_entry.binding = 0;
-    backbuffer_texture_entry.visibility = WGPUShaderStage_Fragment;
-    backbuffer_texture_entry.texture.sampleType = WGPUTextureSampleType_Float;
-    backbuffer_texture_entry.texture.viewDimension = WGPUTextureViewDimension_2D;
-
-    WGPUBindGroupLayoutEntry gui_ubo_entry = {};
-    gui_ubo_entry.binding = 1;
-    gui_ubo_entry.visibility = WGPUShaderStage_Fragment;
-    gui_ubo_entry.buffer.type = WGPUBufferBindingType_Uniform;
-    gui_ubo_entry.buffer.minBindingSize = sizeof(App::GuiPipelineUBO);
-
-    m_gui_bind_group_layout = std::make_unique<webgpu::raii::BindGroupLayout>(
-        m_device, std::vector<WGPUBindGroupLayoutEntry> { backbuffer_texture_entry, gui_ubo_entry }, "gui bind group layout");
-
-    const char preprocessed_code[] = R"(
-    @group(0) @binding(0) var backbuffer_texture : texture_2d<f32>;
-    @group(0) @binding(1) var<uniform> gui_ubo : vec2f;
-
-    struct VertexOut {
-        @builtin(position) position : vec4f,
-        @location(0) texcoords : vec2f
-    }
-
-    @vertex
-    fn vertexMain(@builtin(vertex_index) vertex_index : u32) -> VertexOut {
-        const VERTICES = array(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
-        var vertex_out : VertexOut;
-        vertex_out.position = vec4(VERTICES[vertex_index], 0.0, 1.0);
-        vertex_out.texcoords = vec2(0.5, -0.5) * vertex_out.position.xy + vec2(0.5);
-        return vertex_out;
-    }
-
-    @fragment
-    fn fragmentMain(vertex_out : VertexOut) -> @location(0) vec4f {
-        let tci : vec2<u32> = vec2u(vertex_out.texcoords * gui_ubo);
-        var backbuffer_color = textureLoad(backbuffer_texture, tci, 0);
-        return backbuffer_color;
-    }
-    )";
-
-    WGPUShaderSourceWGSL wgsl_desc {};
-    wgsl_desc.chain.next = nullptr;
-    wgsl_desc.chain.sType = WGPUSType_ShaderSourceWGSL;
-    wgsl_desc.code = WGPUStringView {
-        .data = preprocessed_code,
-        .length = WGPU_STRLEN,
-    };
-    WGPUShaderModuleDescriptor shader_module_desc {};
-    shader_module_desc.label = WGPUStringView { .data = "Gui Shader Module", .length = WGPU_STRLEN };
-    shader_module_desc.nextInChain = &wgsl_desc.chain;
-    auto shader_module = std::make_unique<webgpu::raii::ShaderModule>(m_device, shader_module_desc);
-
-    m_gui_pipeline = std::make_unique<webgpu::raii::GenericRenderPipeline>(m_device,
-        *shader_module,
-        *shader_module,
-        std::vector<webgpu::util::SingleVertexBufferInfo> {},
-        format,
-        std::vector<const webgpu::raii::BindGroupLayout*> { m_gui_bind_group_layout.get() });
-
-    m_gui_bind_group = std::make_unique<webgpu::raii::BindGroup>(m_device,
-        *m_gui_bind_group_layout.get(),
-        std::initializer_list<WGPUBindGroupEntry> { m_framebuffer->color_texture_view(0).create_bind_group_entry(0), m_gui_ubo->create_bind_group_entry(1) });
 
     m_timer_manager = std::make_unique<webgpu::timing::GuiTimerManager>();
     m_gui_manager->init(m_sdl_window, m_device, m_surface_texture_format, WGPUTextureFormat_Undefined);
@@ -511,24 +403,18 @@ void App::handle_shortcuts(QKeyCombination key)
 
 void App::schedule_update() { m_force_repaint_once = true; }
 
-void App::create_framebuffer(uint32_t width, uint32_t height)
+void App::create_scene_target()
 {
-    qDebug() << "creating framebuffer textures for size " << width << "x" << height;
-
-    webgpu::FramebufferFormat format { .size = { width, height }, .depth_format = m_depth_texture_format, .color_formats = { m_surface_texture_format } };
-    m_framebuffer = std::make_unique<webgpu::Framebuffer>(m_device, format);
-
-    if (m_gui_bind_group) {
-        m_gui_bind_group = std::make_unique<webgpu::raii::BindGroup>(m_device,
-            *m_gui_bind_group_layout.get(),
-            std::initializer_list<WGPUBindGroupEntry> {
-                m_framebuffer->color_texture_view(0).create_bind_group_entry(0), m_gui_ubo->create_bind_group_entry(1) });
-    }
-
-    if (m_gui_ubo) {
-        m_gui_ubo_data.resolution = glm::vec2(m_viewport_size);
-        m_gui_ubo->write(m_queue, &m_gui_ubo_data);
-    }
+    WGPUTextureDescriptor desc {};
+    desc.label = WGPUStringView { .data = "scene target", .length = WGPU_STRLEN };
+    desc.dimension = WGPUTextureDimension_2D;
+    desc.size = { m_viewport_size.x, m_viewport_size.y, 1 };
+    desc.format = m_surface_texture_format;
+    desc.mipLevelCount = 1;
+    desc.sampleCount = 1;
+    desc.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
+    m_scene_texture = std::make_unique<webgpu::raii::Texture>(m_device, desc);
+    m_scene_texture_view = m_scene_texture->create_view();
 }
 
 void App::configure_surface(uint32_t width, uint32_t height)
@@ -569,7 +455,9 @@ void App::on_window_resize(int width, int height)
     m_viewport_size = { width, height };
 
     configure_surface(width, height);
-    create_framebuffer(width, height);
+    if (m_gui_manager)
+        m_gui_manager->set_viewport_size(glm::vec2(m_viewport_size));
+    create_scene_target();
 
     m_webgpu_window->resize_framebuffer(m_viewport_size.x, m_viewport_size.y);
     m_camera_controller->set_viewport(m_viewport_size);
