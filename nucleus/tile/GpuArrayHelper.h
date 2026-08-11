@@ -31,24 +31,29 @@ public:
     };
     struct LayerInfo {
         tile::Id id;
-        unsigned index;
+        uint16_t index;
     };
+
+    // sentinel when the storage is full
+    static constexpr unsigned invalid_layer = unsigned(-1);
 
     GpuArrayHelper();
 
-    /// returns index in texture array
+    /// returns index in texture array, or invalid_layer if the array is full
     unsigned add_tile(const tile::Id& tile_id);
     void remove_tile(const tile::Id& tile_id);
     void set_tile_limit(unsigned new_limit);
     unsigned size() const;
     unsigned int n_occupied() const;
+    bool is_full() const;
     Dictionary generate_dictionary() const;
     LayerInfo layer(Id tile_id) const;
     bool contains(Id tile_id) const;
 
 private:
-    std::vector<tile::Id> m_array;
-    tile::IdMap<unsigned> m_id_to_layer;
+    unsigned m_size = 0;
+    std::vector<uint16_t> m_free_layers; // freelist stack
+    tile::IdMap<uint16_t> m_id_to_layer;
 };
 
 } // namespace nucleus::tile

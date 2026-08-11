@@ -22,6 +22,7 @@
 #include "nucleus/camera/Definition.h"
 #include "nucleus/srs.h"
 #include "nucleus/utils/terrain_mesh_index_generator.h"
+#include <QDebug>
 #include <QtAssert>
 
 #include <webgpu/base/RenderResourceRegistry.h>
@@ -480,7 +481,8 @@ void CloudRenderer::update_gpu_tiles_cloud(const std::vector<nucleus::tile::Id>&
         Q_ASSERT(tile.texture);
 
         // Atlas is full
-        if (m_loaded_cloud_textures.n_occupied() >= m_loaded_cloud_textures.size()) {
+        if (m_loaded_cloud_textures.is_full()) {
+            qWarning() << "CloudRenderer: cloud atlas full, dropping remaining tiles this update";
             break;
         }
 
