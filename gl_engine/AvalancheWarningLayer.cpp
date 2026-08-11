@@ -21,6 +21,7 @@
 #include "ShaderProgram.h"
 #include "ShaderRegistry.h"
 #include "TileGeometry.h"
+#include <QDebug>
 #include <QOpenGLExtraFunctions>
 #include <QtAssert>
 #include <TextureLayer.h>
@@ -103,6 +104,11 @@ void AvalancheWarningLayer::update_gpu_tiles(const std::vector<nucleus::tile::Id
         // test for validity
         Q_ASSERT(tile.id.zoom_level < 100);
         Q_ASSERT(tile.texture);
+
+        if (m_gpu_array_helper.is_full()) {
+            qWarning() << "AvalancheWarningLayer: texture array full, dropping remaining tiles this update";
+            break;
+        }
 
         // find empty spot and upload texture
         const auto layer_index = m_gpu_array_helper.add_tile(tile.id);
