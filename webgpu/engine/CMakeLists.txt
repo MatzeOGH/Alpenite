@@ -25,6 +25,7 @@ project(alpine-renderer-webgpu_engine LANGUAGES C CXX)
 
 set(SOURCES
     Window.h Window.cpp
+    AlpeniteRenderer.h AlpeniteRenderer.cpp
     UniformBufferObjects.h
     tile_mesh/TileMeshRenderer.h tile_mesh/TileMeshRenderer.cpp
     cloud/CloudRenderer.h cloud/CloudRenderer.cpp

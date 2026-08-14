@@ -34,6 +34,7 @@
 #include <webgpu/base/timing/WebGpuTimer.h>
 #include <webgpu/webgpu.h>
 
+#include "webgpu/engine/AlpeniteRenderer.h"
 #include "webgpu/engine/Context.h"
 #include "webgpu/engine/Window.h"
 
@@ -74,6 +75,8 @@ private slots:
 private:
     SDL_Window* m_sdl_window;
     std::unique_ptr<webgpu_engine::Window> m_webgpu_window;
+    std::unique_ptr<webgpu_engine::AlpeniteRenderer> m_alpenite_renderer;
+    bool m_use_alpenite = false;
     std::unique_ptr<nucleus::camera::Controller> m_camera_controller;
     std::unique_ptr<RenderingContext> m_context;
 

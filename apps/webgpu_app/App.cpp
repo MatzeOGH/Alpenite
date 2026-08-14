@@ -23,6 +23,7 @@
 #include "webgpu/engine/Window.h"
 #include <QCoreApplication>
 #include <QFile>
+#include <QKeyCombination>
 #include <qthread.h> //TODO maybe only for threading enabled?
 #include <webgpu/base/webgpu_interface.hpp>
 
@@ -51,6 +52,19 @@
 #include "webgpu/base/RenderGraph.h"
 
 namespace webgpu_app {
+
+namespace {
+
+    // returns true if app was launched in alpenite mode
+    bool detect_alpenite_mode()
+    {
+#ifdef __EMSCRIPTEN__
+        return emscripten_run_script_int("location.search.indexOf('alpenite') >= 0 ? 1 : 0") != 0;
+#else
+        return QCoreApplication::arguments().contains(QStringLiteral("--alpenite"));
+#endif
+    }
+} // namespace
 
 App::App()
 {
@@ -237,7 +251,10 @@ void App::render()
                 .texture = m_scene_texture->handle(),
             });
 
-        m_webgpu_window->paint(rg, scene, {m_viewport_size.x, m_viewport_size.y});
+        if (m_use_alpenite)
+            m_alpenite_renderer->paint(rg, scene, {m_viewport_size.x, m_viewport_size.y});
+        else
+            m_webgpu_window->paint(rg, scene, {m_viewport_size.x, m_viewport_size.y});
 
         for (webgpu::rg::ErrorMessage* error = rg->compile(); error; error = error->next)
             qCritical("%.*s", static_cast<int>(error->message.length), error->message.data);
@@ -278,6 +295,8 @@ void App::render()
 
 void App::start()
 {
+    m_use_alpenite = detect_alpenite_mode();
+
     init_window();
 
     webgpu_create_context();
@@ -322,6 +341,17 @@ void App::start()
 
     m_webgpu_window->set_context(m_context->engine_context());
     m_webgpu_window->initialise_gpu();
+
+    if (m_use_alpenite) {
+        m_alpenite_renderer = std::make_unique<webgpu_engine::AlpeniteRenderer>();
+        m_alpenite_renderer->set_context(m_context->engine_context());
+        m_alpenite_renderer->initialise_gpu();
+        connect(m_camera_controller.get(), &nucleus::camera::Controller::definition_changed, m_alpenite_renderer.get(),
+            &webgpu_engine::AlpeniteRenderer::update_camera);
+
+        m_camera_controller->key_press(QKeyCombination(Qt::Key_2)); // force to free fight camera
+        m_force_repaint = true;
+    }
 
     // Configures surface
     this->on_window_resize(m_viewport_size.x, m_viewport_size.y);
