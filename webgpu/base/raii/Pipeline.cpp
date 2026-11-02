@@ -19,6 +19,8 @@
 
 #include "Pipeline.h"
 
+#include <QtAssert>
+
 #include <algorithm>
 #include <iterator>
 #include <webgpu/webgpu.h>
@@ -30,7 +32,7 @@ GenericRenderPipeline::GenericRenderPipeline(WGPUDevice device, const ShaderModu
     const std::vector<std::optional<WGPUBlendState>>& blend_states)
     : m_framebuffer_format { framebuffer_format }
 {
-    assert(blend_states.size() <= framebuffer_format.color_formats.size());
+    Q_ASSERT(blend_states.size() <= framebuffer_format.color_formats.size());
 
     std::vector<WGPUColorTargetState> color_target_states;
 

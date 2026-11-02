@@ -20,9 +20,9 @@
 
 #include "NodeGraph.h"
 #include <QJsonObject>
+#include <expected>
 #include <memory>
 #include <string>
-#include <tl/expected.hpp>
 #include <webgpu/base/Context.h>
 
 namespace webgpu_compute::nodes {
@@ -49,6 +49,6 @@ inline constexpr int NODE_GRAPH_JSON_VERSION = 1;
 /// Creates a graph from JSON, with full validation (format/version, duplicate or unknown
 /// node types, unknown sockets, socket type mismatches, cycles). On success the returned
 /// graph is fully wired (connect_node_signals_and_slots has been called). Ignores "ui".
-[[nodiscard]] tl::expected<std::unique_ptr<NodeGraph>, std::string> deserialize_node_graph(const QJsonObject& root, webgpu::Context& ctx);
+[[nodiscard]] std::expected<std::unique_ptr<NodeGraph>, std::string> deserialize_node_graph(const QJsonObject& root, webgpu::Context& ctx);
 
 } // namespace webgpu_compute::nodes

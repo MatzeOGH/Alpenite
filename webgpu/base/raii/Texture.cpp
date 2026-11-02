@@ -24,6 +24,7 @@
 #include <nucleus/utils/geopng_decoder.h>
 
 #include <QDebug>
+#include <QtAssert>
 #include <bit>
 #include <nucleus/utils/image_writer.h>
 
@@ -101,9 +102,9 @@ uint32_t Texture::max_mip_level_count(glm::uvec2 size)
 
 void Texture::write(WGPUQueue queue, const nucleus::utils::ColourTexture& data, uint32_t layer)
 {
-    assert(static_cast<uint32_t>(data.width()) == m_descriptor.size.width);
-    assert(static_cast<uint32_t>(data.height()) == m_descriptor.size.height);
-    assert(data.format() == nucleus::utils::ColourTexture::Format::Uncompressed_RGBA); // TODO compressed textures
+    Q_ASSERT(static_cast<uint32_t>(data.width()) == m_descriptor.size.width);
+    Q_ASSERT(static_cast<uint32_t>(data.height()) == m_descriptor.size.height);
+    Q_ASSERT(data.format() == nucleus::utils::ColourTexture::Format::Uncompressed_RGBA); // TODO compressed textures
 
     WGPUTexelCopyTextureInfo image_copy_texture {};
     image_copy_texture.texture = m_handle;
@@ -123,10 +124,10 @@ void Texture::write(WGPUQueue queue, const nucleus::utils::ColourTexture& data, 
 
 void Texture::write(WGPUQueue queue, const nucleus::utils::ColourTexture3D& data, glm::uvec3 offset, uint32_t base_mip_level)
 {
-    assert(offset.x % 4 == 0);
-    assert(offset.y % 4 == 0);
-    assert(data.width() % 4 == 0);
-    assert(data.height() % 4 == 0);
+    Q_ASSERT(offset.x % 4 == 0);
+    Q_ASSERT(offset.y % 4 == 0);
+    Q_ASSERT(data.width() % 4 == 0);
+    Q_ASSERT(data.height() % 4 == 0);
     WGPUTexelCopyTextureInfo image_copy_texture {};
     image_copy_texture.texture = m_handle;
     image_copy_texture.aspect = WGPUTextureAspect::WGPUTextureAspect_All;
@@ -144,7 +145,7 @@ void Texture::write(WGPUQueue queue, const nucleus::utils::ColourTexture3D& data
         texture_data_layout.rowsPerImage = (data.height() + 3) / 4; // Also different for BC4
         break;
     default:
-        assert(false && "Texture format not Implemented");
+        Q_ASSERT(false && "Texture format not Implemented");
     }
     texture_data_layout.offset = 0;
 
@@ -234,7 +235,7 @@ void Texture::save_to_file(WGPUDevice device, const std::string& filename, size_
         case WGPUTextureFormat::WGPUTextureFormat_R32Float: {
             const float* float_data = reinterpret_cast<const float*>(data->data());
             const size_t num_floats = data->size() / sizeof(float);
-            nucleus::Raster<float> raster(glm::uvec2(width(), height()));
+            radix::Raster<float> raster(glm::uvec2(width(), height()));
             std::copy(float_data, float_data + num_floats, raster.buffer().data());
             nucleus::utils::geopng::write_encoded_float_png(raster, QString::fromStdString(filename));
         } break;

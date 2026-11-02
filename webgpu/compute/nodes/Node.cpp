@@ -19,6 +19,7 @@
 #include "Node.h"
 
 #include <QDebug>
+#include <QtAssert>
 
 namespace webgpu_compute::nodes {
 
@@ -42,7 +43,7 @@ InputSocket::InputSocket(Node& node, const std::string& name, DataType type)
 
 void InputSocket::connect(OutputSocket& output_socket)
 {
-    assert(type() == output_socket.type());
+    Q_ASSERT(type() == output_socket.type());
     if (is_socket_connected()) {
         m_connected_socket->remove_connected_socket(*this);
     }
@@ -63,7 +64,7 @@ const OutputSocket& InputSocket::connected_socket() const { return *m_connected_
 
 Data InputSocket::get_connected_data()
 {
-    assert(m_connected_socket != nullptr);
+    Q_ASSERT(m_connected_socket != nullptr);
     return m_connected_socket->get_data();
 }
 
@@ -75,7 +76,7 @@ OutputSocket::OutputSocket(Node& node, const std::string& name, DataType type, O
 
 void OutputSocket::connect(InputSocket& input_socket)
 {
-    assert(type() == input_socket.type());
+    Q_ASSERT(type() == input_socket.type());
     m_connected_sockets.push_back(&input_socket);
     input_socket.m_connected_socket = this;
 }
@@ -86,14 +87,14 @@ const std::vector<InputSocket*>& OutputSocket::connected_sockets() const { retur
 Data OutputSocket::get_data()
 {
     Data output = m_output_func();
-    assert(output.index() == type());
+    Q_ASSERT(output.index() == type());
     return output;
 }
 
 void OutputSocket::remove_connected_socket(InputSocket& input_socket)
 {
     auto it = std::find(m_connected_sockets.begin(), m_connected_sockets.end(), &input_socket);
-    assert(it != m_connected_sockets.end());
+    Q_ASSERT(it != m_connected_sockets.end());
     m_connected_sockets.erase(it);
 }
 

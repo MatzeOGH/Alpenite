@@ -19,7 +19,7 @@
 
 #include "Framebuffer.h"
 
-#include <cassert>
+#include <QtAssert>
 
 namespace webgpu {
 
@@ -71,7 +71,7 @@ void Framebuffer::recreate_depth_texture()
 
 void Framebuffer::recreate_color_texture(size_t index)
 {
-    assert(index < m_format.color_formats.size());
+    Q_ASSERT(index < m_format.color_formats.size());
 
     WGPUTextureDescriptor texture_desc {};
     texture_desc.label = WGPUStringView { .data = "framebuffer color texture", .length = WGPU_STRLEN };
@@ -110,13 +110,13 @@ const raii::Texture& Framebuffer::color_texture(size_t index)
 
 const raii::TextureView& Framebuffer::depth_texture_view()
 {
-    assert(m_depth_texture_view);
+    Q_ASSERT(m_depth_texture_view);
     return *m_depth_texture_view.get();
 }
 
 const raii::Texture& Framebuffer::depth_texture()
 {
-    assert(m_depth_texture);
+    Q_ASSERT(m_depth_texture);
     return *m_depth_texture.get();
 }
 
@@ -160,8 +160,8 @@ std::unique_ptr<raii::RenderPassEncoder> Framebuffer::begin_render_pass(WGPUComm
 
 // ToDo: Implement this function
 glm::vec4 Framebuffer::read_colour_attachment_pixel(size_t index, const glm::dvec2& normalised_device_coordinates) {
-    assert(index < m_color_textures.size());
-    assert(normalised_device_coordinates.x >= 0.0 && normalised_device_coordinates.x <= 1.0);
+    Q_ASSERT(index < m_color_textures.size());
+    Q_ASSERT(normalised_device_coordinates.x >= 0.0 && normalised_device_coordinates.x <= 1.0);
     return {};
 }
 

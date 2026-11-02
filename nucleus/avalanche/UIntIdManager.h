@@ -3,7 +3,7 @@
 #include <QDate>
 #include <QImage>
 #include <QObject>
-#include <extern/tl_expected/include/tl/expected.hpp>
+#include <expected>
 
 class QNetworkAccessManager;
 namespace nucleus::avalanche {

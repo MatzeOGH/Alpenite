@@ -33,7 +33,7 @@
 #include "nodes/TileStitchNode.h"
 #include <QDebug>
 #include <algorithm>
-#include <cassert>
+#include <QtAssert>
 
 namespace webgpu_compute {
 
@@ -80,7 +80,7 @@ std::unique_ptr<nodes::Node> NodeRegistry::create(const std::string& type_name, 
     auto node = try_create(type_name, ctx);
     if (!node) {
         qCritical() << "NodeRegistry::create: no node registered for type" << QString::fromStdString(type_name);
-        assert(false && "NodeRegistry::create: unknown node type");
+        Q_ASSERT(false && "NodeRegistry::create: unknown node type");
     }
     return node;
 }

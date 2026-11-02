@@ -4,7 +4,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
-#include <extern/tl_expected/include/tl/expected.hpp>
+#include <expected>
 #include <nucleus/avalanche/eaws.h>
 #include <unordered_set>
 class QNetworkAccessManager;

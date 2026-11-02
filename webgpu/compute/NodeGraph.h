@@ -21,9 +21,9 @@
 
 #include "GraphRunContext.h"
 #include "nodes/Node.h"
+#include <expected>
 #include <memory>
 #include <string>
-#include <tl/expected.hpp>
 #include <webgpu/base/Context.h>
 
 namespace webgpu_compute::nodes {
@@ -74,7 +74,7 @@ public:
 
     // finds topological order of nodes and connects run_finished and run slots accordingly
     // safe to call multiple times
-    [[nodiscard]] tl::expected<std::vector<Node*>, std::string> compute_topological_order();
+    [[nodiscard]] std::expected<std::vector<Node*>, std::string> compute_topological_order();
     void connect_node_signals_and_slots();
 
 public slots:

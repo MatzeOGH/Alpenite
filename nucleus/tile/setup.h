@@ -29,6 +29,7 @@
 #include "utils.h"
 #include <QCoreApplication>
 #include <QThread>
+#include <QtAssert>
 #include <memory>
 #include <nucleus/utils/thread.h>
 
@@ -191,7 +192,7 @@ inline utils::AabbDecoratorPtr aabb_decorator()
 {
     QFile file(":/map/height_data.atb");
     const auto open = file.open(QIODeviceBase::OpenModeFlag::ReadOnly);
-    assert(open);
+    Q_ASSERT(open);
     Q_UNUSED(open);
     const QByteArray data = file.readAll();
     return nucleus::tile::utils::AabbDecorator::make(radix::TileHeights::deserialise(data));

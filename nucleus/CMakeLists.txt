@@ -22,8 +22,7 @@
 project(alpine-renderer-nucleus LANGUAGES C CXX)
 
 alp_add_git_repository(stb_slim URL https://github.com/AlpineMapsOrgDependencies/stb_slim.git COMMITISH 547fade2a12793e1bea4733d59646b4f436e25a4)
-alp_add_git_repository(radix URL https://github.com/AlpineMapsOrg/radix.git COMMITISH e939e10c5a40866950b68a0bc04c851bcfcf5dad NOT_SYSTEM)
-alp_add_git_repository(tl_expected URL https://github.com/TartanLlama/expected.git COMMITISH v1.1.0 DO_NOT_ADD_SUBPROJECT)
+alp_add_git_repository(radix URL https://github.com/AlpineMapsOrg/radix.git COMMITISH 9720bce6399f4581e35edc88f87651f020348b34 NOT_SYSTEM)
 alp_add_git_repository(zppbits URL https://github.com/eyalz800/zpp_bits.git COMMITISH v4.4.25 DO_NOT_ADD_SUBPROJECT)
 if(ALP_ENABLE_LABELS)
     alp_add_git_repository(vector_tiles URL https://github.com/AlpineMapsOrg/vector-tile.git COMMITISH faba88257716c4bc01ebd44d8b8b98f711ecb78c)
@@ -39,9 +38,6 @@ target_include_directories(zppbits SYSTEM INTERFACE ${zppbits_SOURCE_DIR})
 add_library(goofy_tc INTERFACE)
 target_include_directories(goofy_tc INTERFACE ${goofy_tc_SOURCE_DIR})
 set_target_properties(goofy_tc PROPERTIES SYSTEM true)
-
-add_library(tl_expected INTERFACE)
-target_include_directories(tl_expected INTERFACE ${tl_expected_SOURCE_DIR}/include)
 
 add_library(cdt INTERFACE)
 target_include_directories(cdt INTERFACE ${cdt_SOURCE_DIR}/CDT/include)
@@ -67,7 +63,6 @@ add_library(nucleus_version STATIC
 qt_add_library(nucleus STATIC
     AbstractRenderWindow.h
     event_parameter.h
-    Raster.h
     Raster3D.h
     srs.h srs.cpp
     tile/utils.h tile/utils.cpp
@@ -182,7 +177,7 @@ endif()
 
 target_include_directories(nucleus PUBLIC ${CMAKE_SOURCE_DIR})
 # Please keep Qt::Gui outside the nucleus. If you need it optional via a cmake based switch
-target_link_libraries(nucleus PUBLIC radix Qt::Core Qt::Network zppbits tl_expected nucleus_version stb_slim goofy_tc cdt ktx)
+target_link_libraries(nucleus PUBLIC radix Qt::Core Qt::Network zppbits nucleus_version stb_slim goofy_tc cdt KTX::ktx)
 
 qt_add_resources(nucleus "height_data"
     PREFIX "/map"
@@ -213,4 +208,6 @@ else()
     # imgui does not compile with -Werror. so we have to make it private for now.
     # better solutions welcome
     target_compile_options(nucleus PRIVATE -Wall -Wextra -pedantic -Werror)
+    # PUBLIC so every target linking nucleus inherits the suppression
+    target_compile_options(nucleus PUBLIC -Wno-missing-field-initializers)
 endif()

@@ -21,8 +21,8 @@
 #include "Overlay.h"
 #include <QString>
 #include <memory>
-#include <nucleus/Raster.h>
 #include <radix/geometry.h>
+#include <radix/raster.h>
 #include <webgpu/base/Buffer.h>
 #include <webgpu/base/Framebuffer.h>
 #include <webgpu/base/raii/Pipeline.h>

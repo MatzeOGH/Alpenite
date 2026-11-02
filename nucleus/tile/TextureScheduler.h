@@ -30,7 +30,7 @@ public:
     ~TextureScheduler() override;
 
     void set_texture_compression_algorithm(nucleus::utils::ColourTexture::Format compression_algorithm);
-    static Raster<glm::u8vec4> to_raster(const tile::DataQuad& data_quad, const Raster<glm::u8vec4>& default_raster);
+    static radix::Raster<glm::u8vec4> to_raster(const tile::DataQuad& data_quad, const radix::Raster<glm::u8vec4>& default_raster);
 
 signals:
     void gpu_tiles_updated(const std::vector<nucleus::tile::Id>& deleted_tiles, const std::vector<nucleus::tile::GpuTextureTile>& new_tiles);
@@ -40,7 +40,7 @@ protected:
 
 private:
     nucleus::utils::ColourTexture::Format m_compression_algorithm = nucleus::utils::ColourTexture::Format::Uncompressed_RGBA;
-    Raster<glm::u8vec4> m_default_raster;
+    radix::Raster<glm::u8vec4> m_default_raster;
 };
 
 } // namespace nucleus::tile

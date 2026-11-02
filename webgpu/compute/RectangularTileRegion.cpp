@@ -18,12 +18,14 @@
 
 #include "RectangularTileRegion.h"
 
+#include <QtAssert>
+
 namespace webgpu_compute {
 
 std::vector<radix::tile::Id> RectangularTileRegion::get_tiles() const
 {
-    assert(min.x <= max.x);
-    assert(min.y <= max.y);
+    Q_ASSERT(min.x <= max.x);
+    Q_ASSERT(min.y <= max.y);
     std::vector<radix::tile::Id> tiles;
     tiles.reserve((max.x - min.x + 1) * (max.y - min.y + 1));
     for (unsigned x = min.x; x <= max.x; x++) {

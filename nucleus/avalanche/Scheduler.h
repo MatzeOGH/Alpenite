@@ -28,8 +28,8 @@ class Scheduler : public nucleus::tile::Scheduler {
 public:
     Scheduler(const Scheduler::Settings& settings);
     ~Scheduler();
-    static nucleus::Raster<glm::uint16> to_raster(
-        const nucleus::tile::DataQuad& quad, const nucleus::Raster<glm::uint16>& default_raster, std::shared_ptr<UIntIdManager> uint_id_manager);
+    static radix::Raster<glm::uint16> to_raster(
+        const nucleus::tile::DataQuad& quad, const radix::Raster<glm::uint16>& default_raster, std::shared_ptr<UIntIdManager> uint_id_manager);
     std::shared_ptr<UIntIdManager> get_uint_id_manager() { return m_uint_id_manager; }
 
 signals:
@@ -39,7 +39,7 @@ protected:
     void transform_and_emit(const std::vector<nucleus::tile::DataQuad>& new_quads, const std::vector<nucleus::tile::Id>& deleted_quads) override;
 
 private:
-    nucleus::Raster<glm::uint16> m_default_raster;
+    radix::Raster<glm::uint16> m_default_raster;
     std::shared_ptr<UIntIdManager> m_uint_id_manager;
 };
 

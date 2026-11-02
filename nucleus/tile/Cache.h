@@ -20,12 +20,13 @@
 
 #include "types.h"
 #include <QFile>
+#include <QtAssert>
 #include <algorithm>
 #include <filesystem>
 #include <mutex>
 #include <nucleus/utils/lang.h>
 #include <shared_mutex>
-#include <tl/expected.hpp>
+#include <expected>
 #include <unordered_map>
 #include <vector>
 #include <zpp_bits.h>
@@ -78,8 +79,8 @@ public:
     const T& peak_at(const tile::Id& id) const;
     std::vector<T> purge(unsigned remaining_capacity);
 
-    [[nodiscard]] tl::expected<void, QString> write_to_disk(const std::filesystem::path& path);
-    [[nodiscard]] tl::expected<void, QString> read_from_disk(const std::filesystem::path& path);
+    [[nodiscard]] std::expected<void, QString> write_to_disk(const std::filesystem::path& path);
+    [[nodiscard]] std::expected<void, QString> read_from_disk(const std::filesystem::path& path);
 
 private:
     template<typename VisitorFunction>
@@ -132,9 +133,9 @@ const T& Cache<T>::peak_at(const tile::Id& id) const
     return m_data.at(id).data;
 }
 
-template <NamedTile T> tl::expected<void, QString> Cache<T>::write_to_disk(const std::filesystem::path& base_path)
+template <NamedTile T> std::expected<void, QString> Cache<T>::write_to_disk(const std::filesystem::path& base_path)
 {
-    const auto unexpected_error = [](const auto& e) { return tl::unexpected(QString::fromStdString(std::make_error_code(e).message())); };
+    const auto unexpected_error = [](const auto& e) { return std::unexpected(QString::fromStdString(std::make_error_code(e).message())); };
     static_assert(SerialisableTile<T>);
     std::filesystem::create_directories(base_path);
     std::unordered_map<tile::Id, CacheObject, tile::Id::Hasher> data;
@@ -144,11 +145,11 @@ template <NamedTile T> tl::expected<void, QString> Cache<T>::write_to_disk(const
     }
     auto locker = std::scoped_lock(m_disk_cached_mutex);
 
-    const auto write = [](const auto& bytes, const auto& path) -> tl::expected<void, QString> {
+    const auto write = [](const auto& bytes, const auto& path) -> std::expected<void, QString> {
         QFile file(path);
         const auto success = file.open(QIODeviceBase::WriteOnly);
         if (!success)
-            return tl::unexpected<QString>(QString("Couldn't open file '%1' for writing!").arg(QString::fromStdString(path.string())));
+            return std::unexpected<QString>(QString("Couldn't open file '%1' for writing!").arg(QString::fromStdString(path.string())));
         file.write(bytes.data(), qint64(bytes.size()));
         return {};
     };
@@ -218,12 +219,12 @@ template <NamedTile T> tl::expected<void, QString> Cache<T>::write_to_disk(const
         return {};
 }
 
-template <NamedTile T> tl::expected<void, QString> Cache<T>::read_from_disk(const std::filesystem::path& base_path)
+template <NamedTile T> std::expected<void, QString> Cache<T>::read_from_disk(const std::filesystem::path& base_path)
 {
-    const auto unexpected_error = [](const auto& e) { return tl::unexpected(QString::fromStdString(std::make_error_code(e).message())); };
+    const auto unexpected_error = [](const auto& e) { return std::unexpected(QString::fromStdString(std::make_error_code(e).message())); };
     auto locker = std::scoped_lock(m_data_mutex, m_disk_cached_mutex);
-    assert(SerialisableTile<T>);
-    const auto check_version = [&unexpected_error](auto* in, const auto& path) -> tl::expected<void, QString> {
+    Q_ASSERT(SerialisableTile<T>);
+    const auto check_version = [&unexpected_error](auto* in, const auto& path) -> std::expected<void, QString> {
         std::remove_cvref_t<decltype(T::version_information)> version_info = {};
         {
             const auto r = (*in)(version_info);
@@ -233,7 +234,7 @@ template <NamedTile T> tl::expected<void, QString> Cache<T>::read_from_disk(cons
         if (version_info != T::version_information) {
             version_info[version_info.size() - 1] = 0;  // make sure that the string is 0 terminated.
 
-            return tl::unexpected(QString("Cache file '%1' has incompatible version! Disk "
+            return std::unexpected(QString("Cache file '%1' has incompatible version! Disk "
                                           "version is '%2', but we expected '%3'.")
                                       .arg(QString::fromStdString(path.string()))
                                       .arg(version_info.data())
@@ -241,11 +242,11 @@ template <NamedTile T> tl::expected<void, QString> Cache<T>::read_from_disk(cons
         }
         return {};
     };
-    const auto read_all = [](const auto& path) -> tl::expected<QByteArray, QString> {
+    const auto read_all = [](const auto& path) -> std::expected<QByteArray, QString> {
         QFile file(path);
         const auto success = file.open(QIODeviceBase::ReadOnly);
         if (!success)
-            return tl::unexpected(QString("Couldn't open file '%1' for reading!").arg(QString::fromStdString(path.string())));
+            return std::unexpected(QString("Couldn't open file '%1' for reading!").arg(QString::fromStdString(path.string())));
         return file.readAll();
     };
     const auto clean_up = [&]() {
@@ -259,7 +260,7 @@ template <NamedTile T> tl::expected<void, QString> Cache<T>::read_from_disk(cons
         const auto bytes = read_all(path);
         if (!bytes.has_value()) {
             clean_up();
-            return tl::unexpected(bytes.error());
+            return std::unexpected(bytes.error());
         }
         zpp::bits::in in(bytes.value());
         {
@@ -286,7 +287,7 @@ template <NamedTile T> tl::expected<void, QString> Cache<T>::read_from_disk(cons
         const auto bytes = read_all(path);
         if (!bytes.has_value()) {
             clean_up();
-            return tl::unexpected(bytes.error());
+            return std::unexpected(bytes.error());
         }
         zpp::bits::in in(bytes.value());
         {

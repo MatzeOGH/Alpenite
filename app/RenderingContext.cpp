@@ -23,6 +23,7 @@
 #include <QMutex>
 #include <QOpenGLContext>
 #include <QThread>
+#include <QtAssert>
 #include <gl_engine/AvalancheWarningLayer.h>
 #include <gl_engine/Context.h>
 #include <gl_engine/MapLabels.h>
@@ -76,7 +77,7 @@ RenderingContext::RenderingContext(QObject* parent)
     , m(std::make_unique<RenderingContext::Data>())
 {
     using TilePattern = nucleus::tile::TileLoadService::UrlPattern;
-    assert(QThread::currentThread() == QCoreApplication::instance()->thread());
+    Q_ASSERT(QThread::currentThread() == QCoreApplication::instance()->thread());
 
 #ifdef ALP_ENABLE_THREADING
     m->scheduler_thread = std::make_unique<QThread>();

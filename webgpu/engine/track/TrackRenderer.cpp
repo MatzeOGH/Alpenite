@@ -21,6 +21,7 @@
 #include "nucleus/srs.h"
 #include "nucleus/track/GPX.h"
 #include <QString>
+#include <QtAssert>
 #include <webgpu/base/RenderResourceRegistry.h>
 #include <webgpu/base/raii/BindGroupLayout.h>
 #include <webgpu/base/raii/PipelineLayout.h>
@@ -136,7 +137,7 @@ void TrackRenderer::add_track(const Track& track, const glm::vec4& color)
 
 void TrackRenderer::add_world_positions(const std::vector<glm::vec4>& world_positions, const glm::vec4& color)
 {
-    assert(!world_positions.empty());
+    Q_ASSERT(!world_positions.empty());
 
     m_position_buffers.emplace_back(std::make_unique<webgpu::raii::RawBuffer<glm::fvec4>>(
         m_ctx->device(), WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst, world_positions.size(), "track renderer, storage buffer for points"));

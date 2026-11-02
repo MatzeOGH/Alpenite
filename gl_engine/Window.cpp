@@ -43,6 +43,7 @@
 #include <QOpenGLVersionFunctionsFactory>
 #include <QOpenGLVertexArrayObject>
 #include <QTimer>
+#include <QtAssert>
 #include <glm/glm.hpp>
 #include <glm/gtx/transform.hpp>
 #include <nucleus/avalanche/eaws.h>
@@ -109,7 +110,7 @@ void Window::initialise_gpu()
 #endif
 
     QOpenGLExtraFunctions* f = QOpenGLContext::currentContext()->extraFunctions();
-    assert(f->hasOpenGLFeature(QOpenGLExtraFunctions::OpenGLFeature::MultipleRenderTargets));
+    Q_ASSERT(f->hasOpenGLFeature(QOpenGLExtraFunctions::OpenGLFeature::MultipleRenderTargets));
     Q_UNUSED(f);
 
     DepthBufferClipType depth_buffer_clip_type = DepthBufferClipType::MinusOneToOne;
@@ -533,7 +534,7 @@ void Window::pick_value(const glm::dvec2& screen_space_coordinates)
 
 void Window::update_eaws_reports(const nucleus::avalanche::UboEawsReports& newUboEawsReports)
 {
-    assert(m_eaws_reports_ubo);
+    Q_ASSERT(m_eaws_reports_ubo);
     m_eaws_reports_ubo->data = newUboEawsReports;
     m_eaws_reports_ubo->update_gpu_data();
     emit update_requested();

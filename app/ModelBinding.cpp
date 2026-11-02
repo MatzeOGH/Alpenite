@@ -22,6 +22,7 @@
 #include <QVector2D>
 #include <QVector3D>
 #include <QVector4D>
+#include <QtAssert>
 
 namespace {
 
@@ -142,7 +143,7 @@ void ModelBinding::classBegin() { }
 
 void ModelBinding::componentComplete()
 {
-    assert(m_complete == false);
+    Q_ASSERT(m_complete == false);
     if (!m_qml_target.isValid()) {
         qWarning() << "ModelBinding: QML property invalid!";
         if (m_model)

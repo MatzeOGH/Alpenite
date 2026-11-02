@@ -53,7 +53,7 @@
 
 #include "util/string_cast.h"
 #include <QDebug>
-#include <assert.h>
+#include <QtAssert>
 #include <webgpu/webgpu.h>
 
 #ifdef __EMSCRIPTEN__
@@ -317,7 +317,7 @@ WGPUAdapter requestAdapterSync(WGPUInstance instance, const WGPURequestAdapterOp
         qFatal() << "Failed to obtain instance, WGPUWaitStatus was " << status;
     }
 
-    assert(request_ended_data.request_ended);
+    Q_ASSERT(request_ended_data.request_ended);
     return request_ended_data.adapter;
 }
 

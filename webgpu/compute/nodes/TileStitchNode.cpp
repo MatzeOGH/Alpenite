@@ -21,6 +21,7 @@
 
 #include <QDebug>
 #include <QString>
+#include <QtAssert>
 #include <nucleus/srs.h>
 #include <nucleus/utils/image_loader.h>
 #include <nucleus/utils/image_writer.h>
@@ -51,7 +52,7 @@ void TileStitchNode::run_impl()
     // get tile ids to process
     const auto& tile_ids = *std::get<data_type<const std::vector<radix::tile::Id>*>()>(input_socket("tile ids").get_connected_data());
     const auto& textures = *std::get<data_type<const std::vector<QByteArray>*>()>(input_socket("texture data").get_connected_data());
-    assert(tile_ids.size() == textures.size());
+    Q_ASSERT(tile_ids.size() == textures.size());
 
     // The original tile size is as configured in the settings
     glm::uvec2 so = m_settings.tile_size;
@@ -81,8 +82,8 @@ void TileStitchNode::run_impl()
 
     // Check if inside bounds
     if (size_pixels.x > MAX_STITCHED_IMAGE_SIZE || size_pixels.y > MAX_STITCHED_IMAGE_SIZE) {
-        fail_run("Stitched image size would exceeds maximum size of " + std::to_string(MAX_STITCHED_IMAGE_SIZE) + "x"
-            + std::to_string(MAX_STITCHED_IMAGE_SIZE) + " pixel for zoom level " + std::to_string(zl));
+        fail_run("Stitched image size would exceeds maximum size of " + std::to_string(MAX_STITCHED_IMAGE_SIZE) + "x" + std::to_string(MAX_STITCHED_IMAGE_SIZE)
+            + " pixel for zoom level " + std::to_string(zl));
         return;
     }
 
@@ -113,7 +114,7 @@ void TileStitchNode::run_impl()
     auto& tex = m_output_texture->texture();
 
     // store them in this context, otherwise they get deleted too soon (might not be necessary...)
-    std::map<size_t, nucleus::Raster<glm::u8vec4>> images;
+    std::map<size_t, radix::Raster<glm::u8vec4>> images;
     // Load the tiles and upload them directly to the gpu texture
     for (size_t i = 0; i < tile_ids.size(); i++) {
         const auto& tile_id = tile_ids[i];
@@ -131,7 +132,7 @@ void TileStitchNode::run_impl()
         // Load image (NOTE: Only supports u8vec4 so far)
         images[i] = nucleus::utils::image_loader::rgba8(texture_data).value();
         const auto& image = images[i];
-        assert(image.width() == so.x && image.height() == so.y);
+        Q_ASSERT(image.width() == so.x && image.height() == so.y);
 
         WGPUTexelCopyTextureInfo image_copy_texture {};
         image_copy_texture.texture = tex.handle();
@@ -149,7 +150,7 @@ void TileStitchNode::run_impl()
         copy_extent.height = s.y;
         copy_extent.depthOrArrayLayers = 1;
 
-        wgpuQueueWriteTexture(m_ctx->queue(), &image_copy_texture, image.bytes(), uint32_t(image.size_in_bytes()), &texture_data_layout, &copy_extent);
+        wgpuQueueWriteTexture(m_ctx->queue(), &image_copy_texture, image.bytes().data(), uint32_t(image.bytes().size()), &texture_data_layout, &copy_extent);
     }
 
     complete_run();

@@ -18,6 +18,8 @@
 
 #include "GpuTileStorage.h"
 
+#include <QtAssert>
+
 #include "nucleus/tile/conversion.h"
 #include "nucleus/utils/image_loader.h"
 
@@ -40,10 +42,10 @@ TileStorageTexture::TileStorageTexture(WGPUDevice device, const glm::uvec2& reso
 
 void TileStorageTexture::store(size_t layer, const QByteArray& data)
 {
-    assert(layer < m_capacity);
+    Q_ASSERT(layer < m_capacity);
 
     // convert to raster and store in texture array
-    const nucleus::Raster<glm::u8vec4> height_image = nucleus::utils::image_loader::rgba8(data).value();
+    const radix::Raster<glm::u8vec4> height_image = nucleus::utils::image_loader::rgba8(data).value();
     const auto heightraster = nucleus::tile::conversion::to_u16raster(height_image);
     m_texture_array->texture().write(m_queue, heightraster, uint32_t(layer));
 
@@ -59,7 +61,7 @@ size_t TileStorageTexture::store(const QByteArray& data)
 
 void TileStorageTexture::reserve(size_t layer)
 {
-    assert(!m_layers_used[layer]);
+    Q_ASSERT(!m_layers_used[layer]);
 
     set_layer_used(layer);
 }
@@ -80,7 +82,7 @@ void TileStorageTexture::clear()
 
 void TileStorageTexture::clear(size_t layer)
 {
-    assert(layer < m_capacity);
+    Q_ASSERT(layer < m_capacity);
 
     // update used layers
     if (m_layers_used.at(layer)) {
@@ -115,7 +117,7 @@ const webgpu::raii::TextureWithSampler& TileStorageTexture::texture() const { re
 
 size_t TileStorageTexture::find_unused_layer_index() const
 {
-    assert(m_num_stored < m_capacity);
+    Q_ASSERT(m_num_stored < m_capacity);
 
     auto found_at = std::find(m_layers_used.begin(), m_layers_used.end(), false);
     return found_at - m_layers_used.begin();

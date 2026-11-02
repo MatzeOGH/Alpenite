@@ -68,7 +68,7 @@ TEST_CASE("nucleus/EAWS Vector Tiles")
 
     // Check if reader returns a std::vector with EAWS regions when reading mvt file
     radix::tile::Id tile_id_0_0_0({ 0, glm::uvec2(0, 0), radix::tile::Scheme::SlippyMap });
-    tl::expected<nucleus::avalanche::RegionTile, QString> result = nucleus::avalanche::vector_tile_reader(test_data, tile_id_0_0_0);
+    std::expected<nucleus::avalanche::RegionTile, QString> result = nucleus::avalanche::vector_tile_reader(test_data, tile_id_0_0_0);
     CHECK(result.has_value());
 
     // Check if EAWS region struct is initialized with empty attributes
@@ -232,8 +232,8 @@ TEST_CASE("nucleus/avalanche/ReportLoadService")
     REQUIRE(spy.count() == 1);
     QList<QVariant> arguments = spy.takeFirst();
     REQUIRE(arguments.size() == 1);
-    tl::expected<std::vector<nucleus::avalanche::ReportTUWien>, QString> result
-        = qvariant_cast<tl::expected<std::vector<nucleus::avalanche::ReportTUWien>, QString>>(arguments.at(0));
+    std::expected<std::vector<nucleus::avalanche::ReportTUWien>, QString> result
+        = qvariant_cast<std::expected<std::vector<nucleus::avalanche::ReportTUWien>, QString>>(arguments.at(0));
     CHECK(result.has_value());
     if (result.has_value()) {
         nucleus::avalanche::UboEawsReports ubo = arguments.at(0).value<nucleus::avalanche::UboEawsReports>();
@@ -263,7 +263,7 @@ std::pair<QByteArray, nucleus::avalanche::RegionTile> load_tile_from_file(const 
 {
     QByteArray test_data = load_raw_data_from_file(test_file_name);
     CHECK(test_data.size() > 0);
-    tl::expected<nucleus::avalanche::RegionTile, QString> result = nucleus::avalanche::vector_tile_reader(test_data, tile_id);
+    std::expected<nucleus::avalanche::RegionTile, QString> result = nucleus::avalanche::vector_tile_reader(test_data, tile_id);
     CHECK(result.has_value());
     nucleus::avalanche::RegionTile region_tile = result.value();
     return std::pair<QByteArray, nucleus::avalanche::RegionTile>(test_data, region_tile);
@@ -279,7 +279,7 @@ TEST_CASE("nucleus/avalanche/Scheduler")
         nucleus::tile::DataQuad quad;
         quad.id = radix::tile::Id { 6, { 33, 22 }, radix::tile::Scheme::SlippyMap };
         std::vector<nucleus::avalanche::RegionTile> tiles;
-        std::vector<nucleus::Raster<uint16_t>> rasters;
+        std::vector<radix::Raster<uint16_t>> rasters;
         rasters.reserve(4);
         unsigned int idx = 1;
         for (radix::tile::Id tile_id : quad.id.children()) {
@@ -295,7 +295,7 @@ TEST_CASE("nucleus/avalanche/Scheduler")
         quad.n_tiles = 4;
 
         // use "to_raster" on quad and compare result to previously loaded tile rasters
-        nucleus::Raster<glm::uint16> default_raster(glm::uvec2(256, 256), glm::uint16 { 255 });
+        radix::Raster<glm::uint16> default_raster(glm::uvec2(256, 256), glm::uint16 { 255 });
         const auto joined = nucleus::avalanche::Scheduler::to_raster(quad, default_raster, id_manager);
         REQUIRE(joined.width() == 512);
         REQUIRE(joined.height() == 512);

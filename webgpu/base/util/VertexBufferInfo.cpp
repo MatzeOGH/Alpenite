@@ -18,15 +18,15 @@
 
 #include "util/VertexBufferInfo.h"
 
-#include <cassert>
+#include <QtAssert>
 
 namespace webgpu::util {
 
 WGPUVertexBufferLayout SingleVertexBufferInfo::vertex_buffer_layout() const
 {
-    assert(m_step_mode != WGPUVertexStepMode_Undefined);
-    assert(m_vertex_attributes.size() != 0);
-    assert(m_stride != 0);
+    Q_ASSERT(m_step_mode != WGPUVertexStepMode_Undefined);
+    Q_ASSERT(m_vertex_attributes.size() != 0);
+    Q_ASSERT(m_stride != 0);
 
     WGPUVertexBufferLayout vertex_buffer_layout {};
     vertex_buffer_layout.arrayStride = m_stride;

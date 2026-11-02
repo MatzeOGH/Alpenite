@@ -17,6 +17,7 @@
  *****************************************************************************/
 
 #include <QPainter>
+#include <QtAssert>
 #include <catch2/catch_test_macros.hpp>
 
 #include "UnittestGLContext.h"
@@ -87,7 +88,7 @@ void test_unsigned_texture_with(const TexelType& texel_value, gl_engine::Texture
     Framebuffer b(Framebuffer::DepthFormat::None, { Framebuffer::ColourFormat::RGBA8 }, { 1, 1 });
     b.bind();
 
-    const auto tex = nucleus::Raster<TexelType>({ 1, 1 }, texel_value);
+    const auto tex = radix::Raster<TexelType>({ 1, 1 }, texel_value);
     gl_engine::Texture opengl_texture(gl_engine::Texture::Target::_2d, format);
     opengl_texture.bind(0);
     opengl_texture.setParams(gl_engine::Texture::Filter::Nearest, gl_engine::Texture::Filter::Nearest);
@@ -100,7 +101,7 @@ void test_unsigned_texture_with(const TexelType& texel_value, gl_engine::Texture
             return "mediump";
         if (sizeof(Type) == 4)
             return "highp";
-        assert(false);
+        Q_ASSERT(false);
         return "Type has unexpected size";
     };
 
@@ -139,7 +140,7 @@ void test_float_texture_with(const TexelType& texel_value, gl_engine::Texture::F
     Framebuffer b(Framebuffer::DepthFormat::None, { Framebuffer::ColourFormat::RGBA8 }, { 1, 1 });
     b.bind();
 
-    const auto tex = nucleus::Raster<TexelType>({ 1, 1 }, texel_value);
+    const auto tex = radix::Raster<TexelType>({ 1, 1 }, texel_value);
     gl_engine::Texture opengl_texture(gl_engine::Texture::Target::_2d, format);
     opengl_texture.bind(0);
     opengl_texture.setParams(gl_engine::Texture::Filter::Nearest, gl_engine::Texture::Filter::Nearest);
@@ -185,8 +186,8 @@ void test_unsigned_texture_array_with(const std::array<TexelType, 2>& texel_valu
     opengl_texture.setParams(gl_engine::Texture::Filter::Nearest, gl_engine::Texture::Filter::Nearest);
     opengl_texture.allocate_array(1, 1, 2);
 
-    const auto tex0 = nucleus::Raster<TexelType>({ 1, 1 }, texel_value[0]);
-    const auto tex1 = nucleus::Raster<TexelType>({ 1, 1 }, texel_value[1]);
+    const auto tex0 = radix::Raster<TexelType>({ 1, 1 }, texel_value[0]);
+    const auto tex1 = radix::Raster<TexelType>({ 1, 1 }, texel_value[1]);
     opengl_texture.upload(tex0, 0);
     opengl_texture.upload(tex1, 1);
 
@@ -197,7 +198,7 @@ void test_unsigned_texture_array_with(const std::array<TexelType, 2>& texel_valu
             return "mediump";
         if (sizeof(Type) == 4)
             return "highp";
-        assert(false);
+        Q_ASSERT(false);
         return "Type has unexpected size";
     };
 
@@ -274,7 +275,7 @@ QImage create_test_rgba_qimage(unsigned width, unsigned height)
     }
     return test_texture;
 }
-nucleus::Raster<glm::u8vec4> create_test_rgba_raster(unsigned width, unsigned height) { return nucleus::tile::conversion::to_rgba8raster(create_test_rgba_qimage(width, height)); }
+radix::Raster<glm::u8vec4> create_test_rgba_raster(unsigned width, unsigned height) { return nucleus::tile::conversion::to_rgba8raster(create_test_rgba_qimage(width, height)); }
 
 } // namespace
 
@@ -417,7 +418,7 @@ TEST_CASE("gl texture")
         Framebuffer b(Framebuffer::DepthFormat::None, { Framebuffer::ColourFormat::RGBA8 }, { 1, 1 });
         b.bind();
 
-        const auto tex = nucleus::Raster<glm::u8vec2>({ 1, 1 }, glm::u8vec2(240, 120));
+        const auto tex = radix::Raster<glm::u8vec2>({ 1, 1 }, glm::u8vec2(240, 120));
         gl_engine::Texture opengl_texture(gl_engine::Texture::Target::_2d, gl_engine::Texture::Format::RG8);
         opengl_texture.bind(0);
         opengl_texture.setParams(gl_engine::Texture::Filter::Linear, gl_engine::Texture::Filter::Linear);
@@ -484,14 +485,14 @@ TEST_CASE("gl texture")
                     opengl_texture.upload(ColourTexture(test_raster, texture_type.first), 0);
             }
             {
-                auto test_raster = nucleus::Raster<glm::u8vec4>(glm::uvec2(256), glm::u8vec4(42,142,242,255));
+                auto test_raster = radix::Raster<glm::u8vec4>(glm::uvec2(256), glm::u8vec4(42,142,242,255));
                 if (use_mipmaps)
                     opengl_texture.upload(generate_mipmapped_colour_texture(test_raster, texture_type.first), 1);
                 else
                     opengl_texture.upload(ColourTexture(test_raster, texture_type.first), 1);
             }
             {
-                auto test_raster = nucleus::Raster<glm::u8vec4>(glm::uvec2(256), glm::u8vec4(222,111,0,255));
+                auto test_raster = radix::Raster<glm::u8vec4>(glm::uvec2(256), glm::u8vec4(222,111,0,255));
                 if (use_mipmaps)
                     opengl_texture.upload(generate_mipmapped_colour_texture(test_raster, texture_type.first), 2);
                 else
@@ -563,8 +564,8 @@ TEST_CASE("gl texture")
         gl_engine::Texture opengl_texture(gl_engine::Texture::Target::_2dArray, gl_engine::Texture::Format::R16UI);
         opengl_texture.allocate_array(1, 1, 2);
         opengl_texture.setParams(gl_engine::Texture::Filter::Nearest, gl_engine::Texture::Filter::Nearest);
-        opengl_texture.upload(nucleus::Raster<uint16_t>({ 1, 1 }, uint16_t((120 * 65535) / 255)), 0);
-        opengl_texture.upload(nucleus::Raster<uint16_t>({ 1, 1 }, uint16_t((190 * 65535) / 255)), 1);
+        opengl_texture.upload(radix::Raster<uint16_t>({ 1, 1 }, uint16_t((120 * 65535) / 255)), 0);
+        opengl_texture.upload(radix::Raster<uint16_t>({ 1, 1 }, uint16_t((190 * 65535) / 255)), 1);
 
         ShaderProgram shader = create_debug_shader(R"(
             uniform mediump usampler2DArray texture_sampler;
@@ -613,8 +614,8 @@ TEST_CASE("gl texture")
         gl_engine::Texture opengl_texture(gl_engine::Texture::Target::_2dArray, gl_engine::Texture::Format::R8UI);
         opengl_texture.allocate_array(1, 1, 2);
         opengl_texture.setParams(gl_engine::Texture::Filter::Nearest, gl_engine::Texture::Filter::Nearest);
-        opengl_texture.upload(nucleus::Raster<uint8_t>({ 1, 1 }, uint8_t(120)), 0);
-        opengl_texture.upload(nucleus::Raster<uint8_t>({ 1, 1 }, uint8_t(190)), 1);
+        opengl_texture.upload(radix::Raster<uint8_t>({ 1, 1 }, uint8_t(120)), 0);
+        opengl_texture.upload(radix::Raster<uint8_t>({ 1, 1 }, uint8_t(190)), 1);
 
         ShaderProgram shader = create_debug_shader(R"(
             uniform mediump usampler2DArray texture_sampler;

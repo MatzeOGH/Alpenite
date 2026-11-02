@@ -35,7 +35,7 @@ LogoPanel::LogoPanel(WGPUDevice device)
 
 void LogoPanel::init_logo()
 {
-    nucleus::Raster<glm::u8vec4> logo = nucleus::utils::image_loader::rgba8(":/gfx/sujet.png").value();
+    radix::Raster<glm::u8vec4> logo = nucleus::utils::image_loader::rgba8(":/gfx/sujet.png").value();
     m_webigeo_logo_size = ImVec2(float(logo.width()), float(logo.height()));
 
     WGPUTextureDescriptor texture_desc {};

@@ -50,13 +50,13 @@ std::vector<std::filesystem::path> possible_aabb_paths(const std::filesystem::pa
     return candidates;
 }
 
-tl::expected<radix::geometry::Aabb<2, double>, std::string> load_aabb_from_file(const std::filesystem::path& file_path)
+std::expected<radix::geometry::Aabb<2, double>, std::string> load_aabb_from_file(const std::filesystem::path& file_path)
 {
     const std::string path_str = file_path.string();
 
     QFile aabb_file(QString::fromStdString(path_str));
     if (!aabb_file.open(QIODevice::ReadOnly)) {
-        return tl::make_unexpected("Failed to open file " + path_str);
+        return std::unexpected("Failed to open file " + path_str);
     }
     QTextStream file_contents(&aabb_file);
 
@@ -66,25 +66,27 @@ tl::expected<radix::geometry::Aabb<2, double>, std::string> load_aabb_from_file(
         QString line = file_contents.readLine();
         contents[i] = line.toFloat(&float_conversion_ok);
         if (!float_conversion_ok) {
-            return tl::make_unexpected("Failed to parse file " + path_str + ": Could not convert \"" + line.toStdString() + "\" to float");
+            return std::unexpected("Failed to parse file " + path_str + ": Could not convert \"" + line.toStdString() + "\" to float");
         }
     }
 
     if (contents[0] >= contents[2]) {
-        return tl::make_unexpected("Failed to parse file " + path_str + ": x_min (" + std::to_string(contents[0]) + ") must not be >= x_max (" + std::to_string(contents[2]) + ")");
+        return std::unexpected(
+            "Failed to parse file " + path_str + ": x_min (" + std::to_string(contents[0]) + ") must not be >= x_max (" + std::to_string(contents[2]) + ")");
     }
 
     if (contents[1] >= contents[3]) {
-        return tl::make_unexpected("Failed to parse file " + path_str + ": y_min (" + std::to_string(contents[1]) + ") must not be >= y_max (" + std::to_string(contents[3]) + ")");
+        return std::unexpected(
+            "Failed to parse file " + path_str + ": y_min (" + std::to_string(contents[1]) + ") must not be >= y_max (" + std::to_string(contents[3]) + ")");
     }
 
     return radix::geometry::Aabb<2, double> { { contents[0], contents[1] }, { contents[2], contents[3] } };
 }
 
-void write_encoded_float_png(const Raster<float>& data, const QString& filename)
+void write_encoded_float_png(const radix::Raster<float>& data, const QString& filename)
 {
     constexpr float range = ENCODED_FLOAT_RANGE_MAX - ENCODED_FLOAT_RANGE_MIN;
-    Raster<glm::u8vec4> out(glm::uvec2(data.width(), data.height()));
+    radix::Raster<glm::u8vec4> out(glm::uvec2(data.width(), data.height()));
     for (size_t i = 0; i < data.buffer().size(); ++i) {
         const float clamped = std::clamp(data.buffer()[i], ENCODED_FLOAT_RANGE_MIN, ENCODED_FLOAT_RANGE_MAX);
         const uint32_t packed = static_cast<uint32_t>((clamped - ENCODED_FLOAT_RANGE_MIN) / range * static_cast<double>(std::numeric_limits<uint32_t>::max()));
@@ -93,7 +95,7 @@ void write_encoded_float_png(const Raster<float>& data, const QString& filename)
     image_writer::rgba8_as_png(out, filename);
 }
 
-glm::vec2 scan_encoded_float_range(const Raster<glm::u8vec4>& image, bool& likely_encoded_float)
+glm::vec2 scan_encoded_float_range(const radix::Raster<glm::u8vec4>& image, bool& likely_encoded_float)
 {
     constexpr float range = ENCODED_FLOAT_RANGE_MAX - ENCODED_FLOAT_RANGE_MIN;
     float min_val = std::numeric_limits<float>::max();

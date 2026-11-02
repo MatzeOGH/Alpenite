@@ -23,7 +23,6 @@
 #include "webgpu/engine/Window.h"
 #include <QCoreApplication>
 #include <QFile>
-#include <cassert>
 #include <qthread.h> //TODO maybe only for threading enabled?
 #include <webgpu/base/webgpu_interface.hpp>
 
@@ -97,7 +96,7 @@ void App::init_window()
     // Load icon using the existing image loader
     auto icon = nucleus::utils::image_loader::rgba8(":/icons/logo32.png").value();
     // Create SDL_Surface from the raw image data
-    SDL_Surface* iconSurface = SDL_CreateRGBSurfaceFrom((void*)icon.bytes(), // Pixel data
+    SDL_Surface* iconSurface = SDL_CreateRGBSurfaceFrom(icon.bytes().data(), // Pixel data
         icon.width(), // Image width
         icon.height(), // Image height
         32, // Bits per pixel (RGBA = 32 bits)

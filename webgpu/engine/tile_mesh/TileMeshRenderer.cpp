@@ -24,6 +24,7 @@
 #include "nucleus/srs.h"
 #include "nucleus/utils/terrain_mesh_index_generator.h"
 #include <QDebug>
+#include <QtAssert>
 #include <webgpu/base/RenderResourceRegistry.h>
 #include <webgpu/base/raii/BindGroupLayout.h>
 #include <webgpu/base/util/VertexBufferInfo.h>
@@ -315,8 +316,13 @@ void TileMeshRenderer::update_gpu_tiles_height(const std::vector<radix::tile::Id
 
     for (const auto& tile : new_tiles) {
         // test for validity
-        assert(tile.id.zoom_level < 100);
-        assert(tile.surface);
+        Q_ASSERT(tile.id.zoom_level < 100);
+        Q_ASSERT(tile.surface);
+
+        if (m_loaded_height_textures.is_full()) {
+            qWarning() << "TileMeshRenderer: height texture array full, dropping remaining tiles this update";
+            break;
+        }
 
         // find empty spot and upload texture
         const uint32_t layer_index = m_loaded_height_textures.add_tile(tile.id);
@@ -331,8 +337,13 @@ void TileMeshRenderer::update_gpu_tiles_ortho(const std::vector<nucleus::tile::I
     }
     for (const auto& tile : new_tiles) {
         // test for validity
-        assert(tile.id.zoom_level < 100);
-        assert(tile.texture);
+        Q_ASSERT(tile.id.zoom_level < 100);
+        Q_ASSERT(tile.texture);
+
+        if (m_loaded_ortho_textures.is_full()) {
+            qWarning() << "TileMeshRenderer: ortho texture array full, dropping remaining tiles this update";
+            break;
+        }
 
         // find empty spot and upload texture
         const auto layer_index = m_loaded_ortho_textures.add_tile(tile.id);

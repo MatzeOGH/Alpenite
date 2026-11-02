@@ -25,7 +25,8 @@
 
 #include <CDT.h>
 
-#include "nucleus/Raster.h"
+#include <algorithm>
+#include <radix/raster.h>
 #include "nucleus/tile/conversion.h"
 #include "nucleus/utils/rasterizer.h"
 
@@ -312,7 +313,7 @@ TEST_CASE("nucleus/rasterizer")
         // test was added, since there was a case where the second to last row was never rendered
         const std::vector<glm::vec2> polygon_points = { glm::vec2(5, 1), glm::vec2(5, 5), glm::vec2(1, 5) };
 
-        nucleus::Raster<uint8_t> output({ 7, 7 }, 0u);
+        radix::Raster<uint8_t> output({ 7, 7 }, 0u);
         const auto pixel_writer = [&output](glm::ivec2 pos) { output.pixel(pos) = 255; };
         nucleus::utils::rasterizer::rasterize_polygon(pixel_writer, polygon_points);
 
@@ -333,17 +334,17 @@ TEST_CASE("nucleus/rasterizer")
             glm::vec2(10.5, 30.5),
         };
 
-        nucleus::Raster<uint8_t> output({ 64, 64 }, 0u);
+        radix::Raster<uint8_t> output({ 64, 64 }, 0u);
         const auto pixel_writer = [&output](glm::ivec2 pos) { output.pixel(pos) = 255; };
         nucleus::utils::rasterizer::rasterize_polygon(pixel_writer, polygon_points);
 
         const auto edges = nucleus::utils::rasterizer::generate_neighbour_edges(polygon_points);
         const auto triangles = nucleus::utils::rasterizer::triangulize(polygon_points, edges);
-        nucleus::Raster<uint8_t> output2({ 64, 64 }, 0u);
+        radix::Raster<uint8_t> output2({ 64, 64 }, 0u);
         auto pixel_writer2 = [&output2](glm::ivec2 pos) { output2.pixel(pos) = 255; };
         rasterize_triangle_sdf(pixel_writer2, triangles, 0);
 
-        CHECK(output.buffer() == output2.buffer());
+        CHECK(std::ranges::equal(output.buffer(), output2.buffer()));
 
 #ifdef WRITE_RASTERIZER_DEBUG_IMAGE
         // DEBUG: save image (image saved to build/Desktop-Profile/unittests/nucleus)
@@ -357,15 +358,15 @@ TEST_CASE("nucleus/rasterizer")
         // two triangles
         const std::vector<glm::vec2> triangles = { glm::vec2(30.5, 10.5), glm::vec2(10.5, 30.5), glm::vec2(50.5, 50.5), glm::vec2(5.5, 5.5), glm::vec2(15.5, 10.5), glm::vec2(5.5, 15.5) };
 
-        nucleus::Raster<uint8_t> output({ 64, 64 }, 0u);
+        radix::Raster<uint8_t> output({ 64, 64 }, 0u);
         const auto pixel_writer = [&output](glm::ivec2 pos) { output.pixel(pos) = 255; };
         nucleus::utils::rasterizer::rasterize_triangle(pixel_writer, triangles);
 
-        nucleus::Raster<uint8_t> output2({ 64, 64 }, 0u);
+        radix::Raster<uint8_t> output2({ 64, 64 }, 0u);
         auto pixel_writer2 = [&output2](glm::ivec2 pos) { output2.pixel(pos) = 255; };
         rasterize_triangle_sdf(pixel_writer2, triangles, 0);
 
-        CHECK(output.buffer() == output2.buffer());
+        CHECK(std::ranges::equal(output.buffer(), output2.buffer()));
 
 #ifdef WRITE_RASTERIZER_DEBUG_IMAGE
         // DEBUG: save image (image saved to build/Desktop-Profile/unittests/nucleus)
@@ -377,15 +378,15 @@ TEST_CASE("nucleus/rasterizer")
     SECTION("rasterize triangle small")
     {
         const std::vector<glm::vec2> triangles_small = { glm::vec2(2, 2), glm::vec2(1, 3), glm::vec2(3.8, 3.8) };
-        nucleus::Raster<uint8_t> output({ 6, 6 }, 0u);
+        radix::Raster<uint8_t> output({ 6, 6 }, 0u);
         const auto pixel_writer = [&output](glm::ivec2 pos) { output.pixel(pos) = 255; };
         nucleus::utils::rasterizer::rasterize_triangle(pixel_writer, triangles_small);
 
-        nucleus::Raster<uint8_t> output2({ 6, 6 }, 0u);
+        radix::Raster<uint8_t> output2({ 6, 6 }, 0u);
         const auto pixel_writer2 = [&output2](glm::ivec2 pos) { output2.pixel(pos) = 255; };
         rasterize_triangle_sdf(pixel_writer2, triangles_small, 0);
 
-        CHECK(output.buffer() == output2.buffer());
+        CHECK(std::ranges::equal(output.buffer(), output2.buffer()));
 
 #ifdef WRITE_RASTERIZER_DEBUG_IMAGE
         // DEBUG: save image (image saved to build/Desktop-Profile/unittests/nucleus)
@@ -398,15 +399,15 @@ TEST_CASE("nucleus/rasterizer")
     {
         // less than one pixel
         const std::vector<glm::vec2> triangles_smallest = { glm::vec2(30.4, 30.4), glm::vec2(30.8, 30.6), glm::vec2(30.8, 30.8) };
-        nucleus::Raster<uint8_t> output({ 64, 64 }, 0u);
+        radix::Raster<uint8_t> output({ 64, 64 }, 0u);
         const auto pixel_writer = [&output](glm::ivec2 pos) { output.pixel(pos) = 255; };
         nucleus::utils::rasterizer::rasterize_triangle(pixel_writer, triangles_smallest);
 
-        nucleus::Raster<uint8_t> output2({ 64, 64 }, 0u);
+        radix::Raster<uint8_t> output2({ 64, 64 }, 0u);
         const auto pixel_writer2 = [&output2](glm::ivec2 pos) { output2.pixel(pos) = 255; };
         rasterize_triangle_sdf(pixel_writer2, triangles_smallest, 0);
 
-        CHECK(output.buffer() == output2.buffer());
+        CHECK(std::ranges::equal(output.buffer(), output2.buffer()));
 
 #ifdef WRITE_RASTERIZER_DEBUG_IMAGE
         // DEBUG: save image (image saved to build/Desktop-Profile/unittests/nucleus)
@@ -420,7 +421,7 @@ TEST_CASE("nucleus/rasterizer")
         // less than one pixel
         const std::vector<glm::vec2> triangles = { glm::vec2(5.35, 5.35), glm::vec2(5.40, 5.40), glm::vec2(5.45, 5.35) };
         auto size = glm::vec2(10, 10);
-        nucleus::Raster<uint8_t> output(size, 0u);
+        radix::Raster<uint8_t> output(size, 0u);
         float distance = 4.0;
         radix::geometry::Aabb2<double> bounds = { { 0, 0 }, size };
 
@@ -432,14 +433,14 @@ TEST_CASE("nucleus/rasterizer")
         nucleus::utils::rasterizer::details::add_circle_end_cap(pixel_writer, triangles[1], 1, distance);
         nucleus::utils::rasterizer::details::add_circle_end_cap(pixel_writer, triangles[2], 1, distance);
 
-        nucleus::Raster<uint8_t> output2(size, 0u);
+        radix::Raster<uint8_t> output2(size, 0u);
         const auto pixel_writer2 = [&output2, bounds](glm::ivec2 pos) {
             if (bounds.contains(pos))
                 output2.pixel(pos) = 255;
         };
         rasterize_triangle_sdf(pixel_writer2, triangles, distance);
 
-        CHECK(output.buffer() == output2.buffer());
+        CHECK(std::ranges::equal(output.buffer(), output2.buffer()));
 
 #ifdef WRITE_RASTERIZER_DEBUG_IMAGE
         // DEBUG: save image (image saved to build/Desktop-Profile/unittests/nucleus)
@@ -459,7 +460,7 @@ TEST_CASE("nucleus/rasterizer")
             glm::vec2(5.5, 15.5) };
         // const std::vector<glm::vec2> triangles = { glm::vec2(5.35, 5.35), glm::vec2(5.40, 5.40), glm::vec2(5.45, 5.35) };
         auto size = glm::vec2(64, 64);
-        nucleus::Raster<uint8_t> output(size, 0u);
+        radix::Raster<uint8_t> output(size, 0u);
         float distance = 5.0;
         radix::geometry::Aabb2<double> bounds = { { 0, 0 }, size };
 
@@ -469,14 +470,14 @@ TEST_CASE("nucleus/rasterizer")
         };
         nucleus::utils::rasterizer::rasterize_triangle(pixel_writer, triangles, distance);
 
-        nucleus::Raster<uint8_t> output2(size, 0u);
+        radix::Raster<uint8_t> output2(size, 0u);
         const auto pixel_writer2 = [&output2, bounds](glm::ivec2 pos) {
             if (bounds.contains(pos))
                 output2.pixel(pos) = 255;
         };
         rasterize_triangle_sdf(pixel_writer2, triangles, distance);
 
-        CHECK(output.buffer() == output2.buffer());
+        CHECK(std::ranges::equal(output.buffer(), output2.buffer()));
 
 #ifdef WRITE_RASTERIZER_DEBUG_IMAGE
         // DEBUG: save image (image saved to build/Desktop-Profile/unittests/nucleus)
@@ -489,7 +490,7 @@ TEST_CASE("nucleus/rasterizer")
     {
         const std::vector<glm::vec2> triangles = { glm::vec2(30.5, 10.5), glm::vec2(45.5, 45.5), glm::vec2(10.5, 45.5) };
         auto size = glm::vec2(64, 64);
-        nucleus::Raster<uint8_t> output(size, 0u);
+        radix::Raster<uint8_t> output(size, 0u);
         float distance = 4.0;
         radix::geometry::Aabb2<double> bounds = { { 0, 0 }, size };
 
@@ -499,14 +500,14 @@ TEST_CASE("nucleus/rasterizer")
         };
         nucleus::utils::rasterizer::rasterize_triangle(pixel_writer, triangles, distance);
 
-        nucleus::Raster<uint8_t> output2(size, 0u);
+        radix::Raster<uint8_t> output2(size, 0u);
         const auto pixel_writer2 = [&output2, bounds](glm::ivec2 pos) {
             if (bounds.contains(pos))
                 output2.pixel(pos) = 255;
         };
         rasterize_triangle_sdf(pixel_writer2, triangles, distance);
 
-        CHECK(output.buffer() == output2.buffer());
+        CHECK(std::ranges::equal(output.buffer(), output2.buffer()));
 
 #ifdef WRITE_RASTERIZER_DEBUG_IMAGE
         // DEBUG: save image (image saved to build/Desktop-Profile/unittests/nucleus)
@@ -522,7 +523,7 @@ TEST_CASE("nucleus/rasterizer")
     // }
     // ;
     //         auto size = glm::vec2(64, 64);
-    //         nucleus::Raster<uint8_t> output(size, 0u);
+    //         radix::Raster<uint8_t> output(size, 0u);
     //         float distance = 5.0;
     //         radix::geometry::Aabb2<double> bounds = { { 0, 0 }, size };
 
@@ -532,14 +533,14 @@ TEST_CASE("nucleus/rasterizer")
     //         };
     //         nucleus::utils::rasterizer::rasterize_triangle(pixel_writer, triangles, distance);
 
-    //         nucleus::Raster<uint8_t> output2(size, 0u);
+    //         radix::Raster<uint8_t> output2(size, 0u);
     //         const auto pixel_writer2 = [&output2, bounds](glm::ivec2 pos) {
     //             if (bounds.contains(pos))
     //                 output2.pixel(pos) = 255;
     //         };
     //         rasterize_triangle_sdf(pixel_writer2, triangles, distance);
 
-    //         CHECK(output.buffer() == output2.buffer());
+    //         CHECK(std::ranges::equal(output.buffer(), output2.buffer()));
 
     // #ifdef WRITE_DEBUG_IMAGE
     //         // DEBUG: save image (image saved to build/Desktop-Profile/unittests/nucleus)
@@ -563,13 +564,13 @@ TEST_CASE("nucleus/rasterizer")
         const std::vector<glm::vec2> triangles_grid
             = { glm::vec2(12.4023 * orig_scale, 0.2754 * orig_scale), glm::vec2(7.0312 * orig_scale, 10.8027 * orig_scale), glm::vec2(7.3633 * orig_scale, 11.0684 * orig_scale) };
 
-        nucleus::Raster<uint8_t> output({ orig_size, orig_size }, 0u);
+        radix::Raster<uint8_t> output({ orig_size, orig_size }, 0u);
         const auto pixel_writer = [&output](glm::ivec2 pos) { output.pixel(pos) = 255; };
         nucleus::utils::rasterizer::rasterize_triangle(pixel_writer, triangles_grid);
 
         // next write the same triangle to larger raster
         constexpr int enlarged_size = 2048;
-        nucleus::Raster<uint8_t> output_enlarged({ enlarged_size, enlarged_size }, 0u);
+        radix::Raster<uint8_t> output_enlarged({ enlarged_size, enlarged_size }, 0u);
 
         {
             constexpr double enlarged_scale = enlarged_size / 16.0;
@@ -629,15 +630,15 @@ TEST_CASE("nucleus/rasterizer")
 
         auto triangles = nucleus::utils::rasterizer::triangulize(vertices, edges);
 
-        nucleus::Raster<uint8_t> output({ 64, 64 }, 0u);
+        radix::Raster<uint8_t> output({ 64, 64 }, 0u);
         const auto pixel_writer = [&output](glm::ivec2 pos) { output.pixel(pos) = 255; };
         nucleus::utils::rasterizer::rasterize_triangle(pixel_writer, triangles);
 
-        nucleus::Raster<uint8_t> output2({ 64, 64 }, 0u);
+        radix::Raster<uint8_t> output2({ 64, 64 }, 0u);
         auto pixel_writer2 = [&output2](glm::ivec2 pos) { output2.pixel(pos) = 255; };
         rasterize_triangle_sdf(pixel_writer2, triangles, 0);
 
-        CHECK(output.buffer() == output2.buffer());
+        CHECK(std::ranges::equal(output.buffer(), output2.buffer()));
 
 #ifdef WRITE_RASTERIZER_DEBUG_IMAGE
         auto image = nucleus::tile::conversion::u8raster_2_to_qimage(output, output2);
@@ -650,7 +651,7 @@ TEST_CASE("nucleus/rasterizer")
         constexpr auto cells = 8u;
         constexpr auto cell_size = 32u;
 
-        nucleus::Raster<uint8_t> output({ cells * cell_size, cells * cell_size }, 0u);
+        radix::Raster<uint8_t> output({ cells * cell_size, cells * cell_size }, 0u);
         const auto pixel_writer = [&output](glm::ivec2 pos) { output.pixel(pos) = 255; };
 
         const std::vector<std::vector<glm::vec2>> polygon_points = { { { 11.5, 16 }, { 12.9, 3.9 }, { 4.8, 5.5 } },
@@ -788,7 +789,7 @@ TEST_CASE("nucleus/rasterizer")
         };
 
         auto size = glm::vec2(30, 30);
-        nucleus::Raster<uint8_t> output(size, 0u);
+        radix::Raster<uint8_t> output(size, 0u);
         float distance = 0.0;
         radix::geometry::Aabb2<double> bounds = { { 0, 0 }, size };
 
@@ -798,14 +799,14 @@ TEST_CASE("nucleus/rasterizer")
         };
         nucleus::utils::rasterizer::rasterize_triangle(pixel_writer, triangles, distance);
 
-        nucleus::Raster<uint8_t> output2(size, 0u);
+        radix::Raster<uint8_t> output2(size, 0u);
         const auto pixel_writer2 = [&output2, bounds](glm::ivec2 pos) {
             if (bounds.contains(pos))
                 output2.pixel(pos) = 255;
         };
         rasterize_triangle_sdf(pixel_writer2, triangles, distance);
 
-        CHECK(output.buffer() == output2.buffer());
+        CHECK(std::ranges::equal(output.buffer(), output2.buffer()));
 
 #ifdef WRITE_RASTERIZER_DEBUG_IMAGE
         // DEBUG: save image (image saved to build/Desktop-Profile/unittests/nucleus)
@@ -824,7 +825,7 @@ TEST_CASE("nucleus/rasterizer")
         const std::vector<glm::vec2> line_right_to_left_2pixel = { glm::vec2(2.3, 23.7), glm::vec2(6.5, 22.3) };
 
         auto size = glm::vec2(30, 30);
-        nucleus::Raster<uint8_t> output(size, 0u);
+        radix::Raster<uint8_t> output(size, 0u);
         float distance = 0.0;
         radix::geometry::Aabb2<double> bounds = { { 0, 0 }, size };
 
@@ -839,7 +840,7 @@ TEST_CASE("nucleus/rasterizer")
         nucleus::utils::rasterizer::rasterize_line(pixel_writer, line_left_to_right_2pixel, distance);
         nucleus::utils::rasterizer::rasterize_line(pixel_writer, line_right_to_left_2pixel, distance);
 
-        nucleus::Raster<uint8_t> output2(size, 0u);
+        radix::Raster<uint8_t> output2(size, 0u);
         const auto pixel_writer2 = [&output2, bounds](glm::ivec2 pos) {
             if (bounds.contains(pos))
                 output2.pixel(pos) = 255;
@@ -851,7 +852,7 @@ TEST_CASE("nucleus/rasterizer")
         rasterize_line_sdf(pixel_writer2, line_left_to_right_2pixel, distance);
         rasterize_line_sdf(pixel_writer2, line_right_to_left_2pixel, distance);
 
-        CHECK(output.buffer() == output2.buffer());
+        CHECK(std::ranges::equal(output.buffer(), output2.buffer()));
 
 #ifdef WRITE_RASTERIZER_DEBUG_IMAGE
         // DEBUG: save image (image saved to build/Desktop-Profile/unittests/nucleus)
@@ -864,7 +865,7 @@ TEST_CASE("nucleus/rasterizer")
     {
         const std::vector<glm::vec2> line = { glm::vec2(10.5, 10.5), glm::vec2(10.5, 50.5), glm::vec2(50.5, 50.5), glm::vec2(50.5, 10.5), glm::vec2(10.5, 10.5) };
         auto size = glm::vec2(64, 64);
-        nucleus::Raster<uint8_t> output(size, 0u);
+        radix::Raster<uint8_t> output(size, 0u);
         float distance = 0.0;
         radix::geometry::Aabb2<double> bounds = { { 0, 0 }, size };
 
@@ -874,14 +875,14 @@ TEST_CASE("nucleus/rasterizer")
         };
         nucleus::utils::rasterizer::rasterize_line(pixel_writer, line, distance);
 
-        nucleus::Raster<uint8_t> output2(size, 0u);
+        radix::Raster<uint8_t> output2(size, 0u);
         const auto pixel_writer2 = [&output2, bounds](glm::ivec2 pos) {
             if (bounds.contains(pos))
                 output2.pixel(pos) = 255;
         };
         rasterize_line_sdf(pixel_writer2, line, distance);
 
-        CHECK(output.buffer() == output2.buffer());
+        CHECK(std::ranges::equal(output.buffer(), output2.buffer()));
 
 #ifdef WRITE_RASTERIZER_DEBUG_IMAGE
         // DEBUG: save image (image saved to build/Desktop-Profile/unittests/nucleus)
@@ -894,7 +895,7 @@ TEST_CASE("nucleus/rasterizer")
     {
         const std::vector<glm::vec2> line = { glm::vec2(30.5, 10.5), glm::vec2(50.5, 30.5), glm::vec2(30.5, 50.5), glm::vec2(10.5, 30.5), glm::vec2(30.5, 10.5) };
         auto size = glm::vec2(64, 64);
-        nucleus::Raster<uint8_t> output(size, 0u);
+        radix::Raster<uint8_t> output(size, 0u);
         float distance = 0.0;
         radix::geometry::Aabb2<double> bounds = { { 0, 0 }, size };
 
@@ -904,14 +905,14 @@ TEST_CASE("nucleus/rasterizer")
         };
         nucleus::utils::rasterizer::rasterize_line(pixel_writer, line, distance);
 
-        nucleus::Raster<uint8_t> output2(size, 0u);
+        radix::Raster<uint8_t> output2(size, 0u);
         const auto pixel_writer2 = [&output2, bounds](glm::ivec2 pos) {
             if (bounds.contains(pos))
                 output2.pixel(pos) = 255;
         };
         rasterize_line_sdf(pixel_writer2, line, distance);
 
-        CHECK(output.buffer() == output2.buffer());
+        CHECK(std::ranges::equal(output.buffer(), output2.buffer()));
 
 #ifdef WRITE_RASTERIZER_DEBUG_IMAGE
         // DEBUG: save image (image saved to build/Desktop-Profile/unittests/nucleus)
@@ -924,7 +925,7 @@ TEST_CASE("nucleus/rasterizer")
     {
         const std::vector<glm::vec2> line = { glm::vec2(10.5, 10.5), glm::vec2(10.5, 50.5), glm::vec2(50.5, 50.5), glm::vec2(50.5, 10.5), glm::vec2(10.5, 10.5) };
         auto size = glm::vec2(64, 64);
-        nucleus::Raster<uint8_t> output(size, 0u);
+        radix::Raster<uint8_t> output(size, 0u);
         float distance = 2.0;
         radix::geometry::Aabb2<double> bounds = { { 0, 0 }, size };
 
@@ -934,14 +935,14 @@ TEST_CASE("nucleus/rasterizer")
         };
         nucleus::utils::rasterizer::rasterize_line(pixel_writer, line, distance);
 
-        nucleus::Raster<uint8_t> output2(size, 0u);
+        radix::Raster<uint8_t> output2(size, 0u);
         const auto pixel_writer2 = [&output2, bounds](glm::ivec2 pos) {
             if (bounds.contains(pos))
                 output2.pixel(pos) = 255;
         };
         rasterize_line_sdf(pixel_writer2, line, distance);
 
-        CHECK(output.buffer() == output2.buffer());
+        CHECK(std::ranges::equal(output.buffer(), output2.buffer()));
 
 #ifdef WRITE_RASTERIZER_DEBUG_IMAGE
         // DEBUG: save image (image saved to build/Desktop-Profile/unittests/nucleus)
@@ -955,7 +956,7 @@ TEST_CASE("nucleus/rasterizer")
         const std::vector<glm::vec2> line = { glm::vec2(30.5, 10.5), glm::vec2(50.5, 30.5), glm::vec2(30.5, 50.5), glm::vec2(10.5, 30.5), glm::vec2(30.5, 10.5) };
         // const std::vector<glm::vec2> line = { glm::vec2(30.5, 10.5), glm::vec2(50.5, 30.5) };
         auto size = glm::vec2(64, 64);
-        nucleus::Raster<uint8_t> output(size, 0u);
+        radix::Raster<uint8_t> output(size, 0u);
         float distance = 2.0;
         radix::geometry::Aabb2<double> bounds = { { 0, 0 }, size };
 
@@ -965,14 +966,14 @@ TEST_CASE("nucleus/rasterizer")
         };
         nucleus::utils::rasterizer::rasterize_line(pixel_writer, line, distance);
 
-        nucleus::Raster<uint8_t> output2(size, 0u);
+        radix::Raster<uint8_t> output2(size, 0u);
         const auto pixel_writer2 = [&output2, bounds](glm::ivec2 pos) {
             if (bounds.contains(pos))
                 output2.pixel(pos) = 255;
         };
         rasterize_line_sdf(pixel_writer2, line, distance);
 
-        CHECK(output.buffer() == output2.buffer());
+        CHECK(std::ranges::equal(output.buffer(), output2.buffer()));
 
 #ifdef WRITE_RASTERIZER_DEBUG_IMAGE
         // DEBUG: save image (image saved to build/Desktop-Profile/unittests/nucleus)

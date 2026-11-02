@@ -22,7 +22,7 @@
 #pragma once
 
 #include <algorithm>
-#include <cassert>
+#include <QtAssert>
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <glm/gtx/component_wise.hpp>
@@ -44,7 +44,7 @@ public:
         , m_height(square_side_length)
         , m_depth(depth)
     {
-        assert(m_data.size() == m_width * m_height * m_depth);
+        Q_ASSERT(m_data.size() == m_width * m_height * m_depth);
     }
     Raster3D(unsigned square_side_length, unsigned depth)
         : m_data(square_side_length * square_side_length * depth)
@@ -80,16 +80,16 @@ public:
     [[nodiscard]] size_t buffer_length() const { return m_data.size(); }
     [[nodiscard]] const T& pixel(const glm::uvec3& position) const
     {
-        assert(position.x < m_width);
-        assert(position.y < m_height);
-        assert(position.z < m_depth);
+        Q_ASSERT(position.x < m_width);
+        Q_ASSERT(position.y < m_height);
+        Q_ASSERT(position.z < m_depth);
         return m_data[position.x + m_width * position.y + m_width * m_height * position.z];
     }
     [[nodiscard]] T& pixel(const glm::uvec3& position)
     {
-        assert(position.x < m_width);
-        assert(position.y < m_height);
-        assert(position.z < m_depth);
+        Q_ASSERT(position.x < m_width);
+        Q_ASSERT(position.y < m_height);
+        Q_ASSERT(position.z < m_depth);
         return m_data[position.x + m_width * position.y + m_width * m_height * position.z];
     }
     [[nodiscard]] const uint8_t* bytes() const { return reinterpret_cast<const uint8_t*>(m_data.data()); }

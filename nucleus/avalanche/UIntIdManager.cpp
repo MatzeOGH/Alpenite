@@ -27,7 +27,8 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
-#include <extern/tl_expected/include/tl/expected.hpp>
+#include <QtAssert>
+#include <expected>
 #include <iostream>
 
 namespace nucleus::avalanche {
@@ -37,7 +38,7 @@ UIntIdManager::UIntIdManager(const QDate& reference_date)
     // intern_id = 0 means "no region"
     m_region_id_to_internal_id[QString("")] = 0;
     m_internal_id_to_region_id[0] = QString("");
-    assert(m_max_internal_id == 0);
+    Q_ASSERT(m_max_internal_id == 0);
 }
 
 uint UIntIdManager::convert_region_id_to_internal_id(const QString& region_id)

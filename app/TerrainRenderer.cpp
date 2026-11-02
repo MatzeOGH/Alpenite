@@ -24,6 +24,7 @@
 #include <QOpenGLFramebufferObjectFormat>
 #include <QQuickWindow>
 #include <QThread>
+#include <QtAssert>
 
 #include "RenderingContext.h"
 #include "TerrainRendererItem.h"
@@ -161,6 +162,6 @@ nucleus::camera::Controller* TerrainRenderer::controller() const { return m_came
 
 std::shared_ptr<nucleus::avalanche::ReportLoadService> TerrainRenderer::eaws_report_load_service()
 {
-    assert(m_eaws_report_load_service);
+    Q_ASSERT(m_eaws_report_load_service);
     return m_eaws_report_load_service;
 }

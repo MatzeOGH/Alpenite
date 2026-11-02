@@ -74,13 +74,13 @@ QJsonObject serialize_node_graph(const NodeGraph& graph)
     return root;
 }
 
-tl::expected<std::unique_ptr<NodeGraph>, std::string> deserialize_node_graph(const QJsonObject& root, webgpu::Context& ctx)
+std::expected<std::unique_ptr<NodeGraph>, std::string> deserialize_node_graph(const QJsonObject& root, webgpu::Context& ctx)
 {
     // Format / version guard
     if (root["format"].toString() != QLatin1String(NODE_GRAPH_JSON_FORMAT))
-        return tl::unexpected(std::string("invalid format tag (expected \"") + NODE_GRAPH_JSON_FORMAT + "\")");
+        return std::unexpected(std::string("invalid format tag (expected \"") + NODE_GRAPH_JSON_FORMAT + "\")");
     if (root["version"].toInt(-1) != NODE_GRAPH_JSON_VERSION)
-        return tl::unexpected(std::string("unsupported version (expected ") + std::to_string(NODE_GRAPH_JSON_VERSION) + ")");
+        return std::unexpected(std::string("unsupported version (expected ") + std::to_string(NODE_GRAPH_JSON_VERSION) + ")");
 
     auto graph = std::make_unique<NodeGraph>();
 
@@ -92,13 +92,13 @@ tl::expected<std::unique_ptr<NodeGraph>, std::string> deserialize_node_graph(con
         const std::string type_name = node_obj["type"].toString().toStdString();
 
         if (node_name.empty())
-            return tl::unexpected(std::string("node entry is missing \"name\""));
+            return std::unexpected(std::string("node entry is missing \"name\""));
         if (graph->exists_node(node_name))
-            return tl::unexpected("duplicate node name: \"" + node_name + "\"");
+            return std::unexpected("duplicate node name: \"" + node_name + "\"");
 
         auto node = NodeRegistry::instance().try_create(type_name, ctx);
         if (!node)
-            return tl::unexpected("unknown node type: \"" + type_name + "\"");
+            return std::unexpected("unknown node type: \"" + type_name + "\"");
 
         node->set_enabled(node_obj["enabled"].toBool(true));
         if (node_obj.contains("settings"))
@@ -120,23 +120,23 @@ tl::expected<std::unique_ptr<NodeGraph>, std::string> deserialize_node_graph(con
         const std::string to_socket = to_obj["socket"].toString().toStdString();
 
         if (!graph->exists_node(from_node))
-            return tl::unexpected("connection references unknown source node \"" + from_node + "\"");
+            return std::unexpected("connection references unknown source node \"" + from_node + "\"");
         if (!graph->exists_node(to_node))
-            return tl::unexpected("connection references unknown destination node \"" + to_node + "\"");
+            return std::unexpected("connection references unknown destination node \"" + to_node + "\"");
 
         Node& src = graph->get_node(from_node);
         Node& dst = graph->get_node(to_node);
 
         if (!src.has_output_socket(from_socket))
-            return tl::unexpected("node \"" + from_node + "\" has no output socket \"" + from_socket + "\"");
+            return std::unexpected("node \"" + from_node + "\" has no output socket \"" + from_socket + "\"");
         if (!dst.has_input_socket(to_socket))
-            return tl::unexpected("node \"" + to_node + "\" has no input socket \"" + to_socket + "\"");
+            return std::unexpected("node \"" + to_node + "\" has no input socket \"" + to_socket + "\"");
 
         OutputSocket& output = src.output_socket(from_socket);
         InputSocket& input = dst.input_socket(to_socket);
 
         if (output.type() != input.type())
-            return tl::unexpected("type mismatch: \"" + from_node + "\":\"" + from_socket + "\" -> \"" + to_node + "\":\"" + to_socket + "\"");
+            return std::unexpected("type mismatch: \"" + from_node + "\":\"" + from_socket + "\" -> \"" + to_node + "\":\"" + to_socket + "\"");
 
         input.connect(output);
     }
@@ -144,7 +144,7 @@ tl::expected<std::unique_ptr<NodeGraph>, std::string> deserialize_node_graph(con
     // Cycle / empty check before wiring Qt signals
     auto topo = graph->compute_topological_order();
     if (!topo)
-        return tl::unexpected(topo.error());
+        return std::unexpected(topo.error());
 
     graph->connect_node_signals_and_slots();
     return graph;

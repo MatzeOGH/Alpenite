@@ -25,6 +25,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QtAssert>
 #include <algorithm>
 #include <extern/radix/src/radix/tile.h>
 #include <nucleus/tile/conversion.h>
@@ -32,7 +33,7 @@
 
 namespace nucleus::avalanche {
 
-tl::expected<RegionTile, QString> vector_tile_reader(const QByteArray& input_data, const radix::tile::Id& tile_id)
+std::expected<RegionTile, QString> vector_tile_reader(const QByteArray& input_data, const radix::tile::Id& tile_id)
 {
     // This name could theoretically be changed by the EAWS (very unlikely though)
     const QString& name_of_layer_with_eaws_regions = "micro-regions";
@@ -44,7 +45,7 @@ tl::expected<RegionTile, QString> vector_tile_reader(const QByteArray& input_dat
     if (!layers.contains(name_of_layer_with_eaws_regions.toStdString())) {
         QString error_message
             = "ERROR in vector_tile::reader::eaws_region: The vector tile contains no layer with name " + name_of_layer_with_eaws_regions + ".";
-        return tl::unexpected(error_message);
+        return std::unexpected(error_message);
     }
 
     // Get the relevant layer and check if it contains data
@@ -52,13 +53,13 @@ tl::expected<RegionTile, QString> vector_tile_reader(const QByteArray& input_dat
     if (layer.featureCount() <= 0) {
         QString error_message = "ERROR in vector_tile::reader::eaws_region: The vector tile contains no EAWS micro-regions in the layer \""
             + name_of_layer_with_eaws_regions + "\".";
-        return tl::unexpected(error_message);
+        return std::unexpected(error_message);
     }
 
     // Ensure extend > 0. Extend is an integer representing the resolution of the square tile. Usually the extend is 4096
     if (layer.getExtent() <= 0) {
         QString error_message = "ERROR in vector_tile::reader::eaws_region: Vector tile has extend <= 0.";
-        return tl::unexpected(error_message);
+        return std::unexpected(error_message);
     }
     uint extent = layer.getExtent();
 
@@ -95,20 +96,20 @@ tl::expected<RegionTile, QString> vector_tile_reader(const QByteArray& input_dat
     }
 
     // Combine all regions with their tile id and return this pair
-    return tl::expected<RegionTile, QString>(RegionTile(tile_id, regions_to_be_returned));
+    return std::expected<RegionTile, QString>(RegionTile(tile_id, regions_to_be_returned));
 }
 
 // Auxillary function: Calculates new coordinates of a region boundary after zoom in / out
 std::vector<QPointF> transform_vertices(const Region& region, const radix::tile::Id& tile_id_in, const radix::tile::Id& tile_id_out, QImage* img)
 {
     // Check if input is consistent
-    assert(img->devicePixelRatio() == 1.0);
-    assert((region.resolution.x > 0 && region.resolution.y > 0));
-    assert((img->width() > 0 && img->height() > 0));
-    assert(tile_id_in.coords.x < qPow(2, tile_id_in.zoom_level));
-    assert(tile_id_in.coords.y < qPow(2, tile_id_in.zoom_level));
-    assert(tile_id_out.coords.x < qPow(2, tile_id_out.zoom_level));
-    assert(tile_id_out.coords.y < qPow(2, tile_id_out.zoom_level));
+    Q_ASSERT(img->devicePixelRatio() == 1.0);
+    Q_ASSERT((region.resolution.x > 0 && region.resolution.y > 0));
+    Q_ASSERT((img->width() > 0 && img->height() > 0));
+    Q_ASSERT(tile_id_in.coords.x < qPow(2, tile_id_in.zoom_level));
+    Q_ASSERT(tile_id_in.coords.y < qPow(2, tile_id_in.zoom_level));
+    Q_ASSERT(tile_id_out.coords.x < qPow(2, tile_id_out.zoom_level));
+    Q_ASSERT(tile_id_out.coords.y < qPow(2, tile_id_out.zoom_level));
 
     // Check whether we are zooming in or out for the output raster
     uint zoom_level_in = tile_id_in.zoom_level;
@@ -123,8 +124,8 @@ std::vector<QPointF> transform_vertices(const Region& region, const radix::tile:
     if (zoom_level_in < zoom_level_out) {
 
         // Output tile origin must lie within input tile
-        assert(origin_in.x <= origin_out.x && origin_in.y <= origin_out.y);
-        assert(origin_out.x + tile_size_out <= origin_in.x + tile_size_in && origin_out.y + tile_size_out <= origin_in.y + tile_size_in);
+        Q_ASSERT(origin_in.x <= origin_out.x && origin_in.y <= origin_out.y);
+        Q_ASSERT(origin_out.x + tile_size_out <= origin_in.x + tile_size_in && origin_out.y + tile_size_out <= origin_in.y + tile_size_in);
 
         // Determine origin of output tile w.r.t to input tile. Result in [0,1]x[0,1] since the output origin lies within the input tile
         relative_origin = glm::vec2((origin_out.x - origin_in.x) / tile_size_in, (origin_out.y - origin_in.y) / tile_size_in);
@@ -135,12 +136,12 @@ std::vector<QPointF> transform_vertices(const Region& region, const radix::tile:
     }
 
     // This case does not work and it is not clear at this point if this case is necessary
-    assert(zoom_level_in <= zoom_level_out);
+    Q_ASSERT(zoom_level_in <= zoom_level_out);
     /*
     else if (zoom_level_out < zoom_level_in) {
         // zoom_in > zoom_out => Output tile origin must lie within input tile
-        assert(origin_out.x <= origin_in.x && origin_out.y <= origin_in.y);
-        assert(origin_in.x + tile_size_in <= origin_out.x + tile_size_out && origin_in.y + tile_size_in <= origin_out.y + tile_size_out);
+        Q_ASSERT(origin_out.x <= origin_in.x && origin_out.y <= origin_in.y);
+        Q_ASSERT(origin_in.x + tile_size_in <= origin_out.x + tile_size_out && origin_in.y + tile_size_in <= origin_out.y + tile_size_out);
 
         // Determine origin of input tile w.r.t to output tile. Results in [0,1]x[0,1] since the input origin must lie within the ouput tile
         relative_origin = glm::vec2((origin_in.x - origin_out.x) / tile_size_out, (origin_in.y - origin_out.y) / tile_size_out);
@@ -178,7 +179,7 @@ QImage draw_regions(const RegionTile& region_tile,
     painter.setRenderHint(QPainter::Antialiasing, false);
 
     // Draw all regions to the image
-    assert(region_tile.second.size() > 0);
+    Q_ASSERT(region_tile.second.size() > 0);
     radix::tile::Id tile_id_in = region_tile.first;
     for (const auto& region : region_tile.second) {
         // Only draw regions as of July 1st 2025
@@ -195,15 +196,15 @@ QImage draw_regions(const RegionTile& region_tile,
         painter.setPen(QPen(color_of_region)); // we also have to set the pen if we want to draw boundaries
 
         // Draw polygon: The first point is implicitly connected to the last point, and the polygon is filled with the current brush().
-        assert(img.devicePixelRatio() == 1.0);
+        Q_ASSERT(img.devicePixelRatio() == 1.0);
         painter.drawPolygon(transformed_vertices_as_QPointFs.data(), transformed_vertices_as_QPointFs.size());
-        assert(img.devicePixelRatio() == 1.0);
+        Q_ASSERT(img.devicePixelRatio() == 1.0);
     }
     // return image with all regions in it
     return img;
 }
 
-nucleus::Raster<uint16_t> rasterize_regions(const RegionTile& region_tile,
+radix::Raster<uint16_t> rasterize_regions(const RegionTile& region_tile,
     std::shared_ptr<UIntIdManager> internal_id_manager,
     const uint raster_width,
     const uint raster_height,
@@ -215,7 +216,7 @@ nucleus::Raster<uint16_t> rasterize_regions(const RegionTile& region_tile,
     return raster;
 }
 
-nucleus::Raster<uint16_t> rasterize_regions(const RegionTile& region_tile, std::shared_ptr<UIntIdManager> internal_id_manager)
+radix::Raster<uint16_t> rasterize_regions(const RegionTile& region_tile, std::shared_ptr<UIntIdManager> internal_id_manager)
 {
     return rasterize_regions(region_tile, internal_id_manager, region_tile.second[0].resolution.x, region_tile.second[0].resolution.y, region_tile.first);
 }

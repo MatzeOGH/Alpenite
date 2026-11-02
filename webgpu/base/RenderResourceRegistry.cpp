@@ -20,7 +20,7 @@
 
 #include <QDebug>
 #include <QFile>
-#include <cassert>
+#include <QtAssert>
 #include <chrono>
 
 namespace webgpu {
@@ -48,7 +48,7 @@ bool RenderResourceRegistry::has_shader(const std::string& name) const { return 
 const raii::ShaderModule& RenderResourceRegistry::shader(const std::string& name) const
 {
     auto it = m_shader_index.find(name);
-    assert(it != m_shader_index.end());
+    Q_ASSERT(it != m_shader_index.end());
     return *m_shaders[it->second].module;
 }
 
@@ -67,7 +67,7 @@ bool RenderResourceRegistry::has_bind_group_layout(const std::string& name) cons
 const raii::BindGroupLayout& RenderResourceRegistry::bind_group_layout(const std::string& name) const
 {
     auto it = m_layout_index.find(name);
-    assert(it != m_layout_index.end());
+    Q_ASSERT(it != m_layout_index.end());
     return *m_layouts[it->second].layout;
 }
 

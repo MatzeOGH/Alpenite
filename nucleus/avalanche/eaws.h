@@ -19,9 +19,9 @@
 
 #include <QDate>
 #include <QPainter>
-#include <extern/tl_expected/include/tl/expected.hpp>
+#include <expected>
 #include <mapbox/vector_tile.hpp>
-#include <nucleus/Raster.h>
+#include <radix/raster.h>
 
 namespace radix::tile {
 struct Id;
@@ -56,7 +56,7 @@ using RegionTile = std::pair<radix::tile::Id, std::vector<Region>>;
  * @param input_data: An array holding the data read froma vector tile (usually obtained by reading a from a mvt file).
  * @param tile_id: The zoom, x-y-cordinates and tile-scheme belonging to the input data
  */
-tl::expected<RegionTile, QString> vector_tile_reader(const QByteArray& input_data, const radix::tile::Id& tile_id);
+std::expected<RegionTile, QString> vector_tile_reader(const QByteArray& input_data, const radix::tile::Id& tile_id);
 
 // This struct contains report data written to ubo on gpu
 struct UboEawsReports {
@@ -74,12 +74,12 @@ QImage draw_regions(const RegionTile& region_tile,
 
 // Creates a raster from a QImage with regions in it. Throws error when raster_width or raster_height is 0.
 // Note: tile_id_out must have greater or equal zoomlevel than tile_id_in
-nucleus::Raster<uint16_t> rasterize_regions(const RegionTile& region_tile,
+radix::Raster<uint16_t> rasterize_regions(const RegionTile& region_tile,
     std::shared_ptr<UIntIdManager> internal_id_manager,
     const uint raster_width,
     const uint raster_height,
     const radix::tile::Id& tile_id_out);
 
 // Overload: Output has same resolution as EAWS regions, throws error when regions.size() == 0
-nucleus::Raster<uint16_t> rasterize_regions(const RegionTile& region_tile, std::shared_ptr<UIntIdManager> internal_id_manager);
+radix::Raster<uint16_t> rasterize_regions(const RegionTile& region_tile, std::shared_ptr<UIntIdManager> internal_id_manager);
 } // namespace nucleus::avalanche

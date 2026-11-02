@@ -24,6 +24,9 @@
 #include "nucleus/camera/Definition.h"
 #include "nucleus/srs.h"
 #include "nucleus/utils/terrain_mesh_index_generator.h"
+#include <QDebug>
+#include <QtAssert>
+
 #include <webgpu/base/RenderResourceRegistry.h>
 #include <webgpu/base/raii/BindGroupLayout.h>
 
@@ -600,11 +603,12 @@ void CloudRenderer::update_gpu_tiles_cloud(const std::vector<nucleus::tile::Id>&
     }
     for (const auto& tile : new_tiles) {
         // test for validity
-        assert(tile.id.zoom_level < 100);
-        assert(tile.texture);
+        Q_ASSERT(tile.id.zoom_level < 100);
+        Q_ASSERT(tile.texture);
 
         // Atlas is full
-        if (m_loaded_cloud_textures.n_occupied() >= m_loaded_cloud_textures.size()) {
+        if (m_loaded_cloud_textures.is_full()) {
+            qWarning() << "CloudRenderer: cloud atlas full, dropping remaining tiles this update";
             break;
         }
 
@@ -614,9 +618,9 @@ void CloudRenderer::update_gpu_tiles_cloud(const std::vector<nucleus::tile::Id>&
         uint32_t atlas_x = layer_index & ATLAS_MASK_XY;
         uint32_t atlas_y = (layer_index >> ATLAS_BITS_XY) & ATLAS_MASK_XY;
         uint32_t atlas_z = (layer_index >> (2 * ATLAS_BITS_XY)) & ATLAS_MASK_Z;
-        assert(atlas_x < ATLAS_SCALE_XY);
-        assert(atlas_y < ATLAS_SCALE_XY);
-        assert(atlas_z < ATLAS_SCALE_Z);
+        Q_ASSERT(atlas_x < ATLAS_SCALE_XY);
+        Q_ASSERT(atlas_y < ATLAS_SCALE_XY);
+        Q_ASSERT(atlas_z < ATLAS_SCALE_Z);
         // Note: z is "up" in texture space
         for (int i = 0; i < tile.texture->size(); ++i) {
             const auto& level = tile.texture->at(i);

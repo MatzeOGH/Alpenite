@@ -20,6 +20,8 @@
 
 #include "Context.h"
 
+#include <QtAssert>
+
 #include <webgpu/base/raii/BindGroupLayout.h>
 
 namespace webgpu_engine {
@@ -33,7 +35,7 @@ Context::~Context() = default;
 
 void Context::internal_initialise()
 {
-    assert(m_webgpu_ctx_ptr != nullptr);
+    Q_ASSERT(m_webgpu_ctx_ptr != nullptr);
 
     auto& reg = webgpu_ctx().resource_registry();
     reg.set_local_shader_path("webgpu", ALP_SHADER_DIR_WEBGPU);
@@ -186,7 +188,7 @@ TileMeshRenderer* Context::tile_mesh_renderer() const { return m_tile_mesh_rende
 
 void Context::set_tile_mesh_renderer(std::shared_ptr<TileMeshRenderer> new_tile_mesh_renderer)
 {
-    assert(!is_alive()); // only set before init is called.
+    Q_ASSERT(!is_alive()); // only set before init is called.
     m_tile_mesh_renderer = std::move(new_tile_mesh_renderer);
 }
 
@@ -194,7 +196,7 @@ CloudRenderer* Context::cloud_renderer() const { return m_cloud_renderer.get(); 
 
 void Context::set_cloud_renderer(std::shared_ptr<CloudRenderer> new_cloud_renderer)
 {
-    assert(!is_alive()); // only set before init is called.
+    Q_ASSERT(!is_alive()); // only set before init is called.
     m_cloud_renderer = std::move(new_cloud_renderer);
 }
 
@@ -202,7 +204,7 @@ AtmosphereRenderer* Context::atmosphere_renderer() const { return m_atmosphere_r
 
 void Context::set_atmosphere_renderer(std::shared_ptr<AtmosphereRenderer> new_atmosphere_renderer)
 {
-    assert(!is_alive()); // only set before init is called.
+    Q_ASSERT(!is_alive()); // only set before init is called.
     m_atmosphere_renderer = std::move(new_atmosphere_renderer);
 }
 
@@ -210,7 +212,7 @@ OverlayRenderer* Context::overlay_renderer() const { return m_overlay_renderer.g
 
 void Context::set_overlay_renderer(std::shared_ptr<OverlayRenderer> new_overlay_renderer)
 {
-    assert(!is_alive()); // only set before init is called.
+    Q_ASSERT(!is_alive()); // only set before init is called.
     m_overlay_renderer = std::move(new_overlay_renderer);
 }
 
@@ -218,7 +220,7 @@ TrackRenderer* Context::track_renderer() const { return m_track_renderer.get(); 
 
 void Context::set_track_renderer(std::shared_ptr<TrackRenderer> new_track_renderer)
 {
-    assert(!is_alive()); // only set before init is called.
+    Q_ASSERT(!is_alive()); // only set before init is called.
     m_track_renderer = std::move(new_track_renderer);
 }
 
@@ -234,7 +236,7 @@ void Context::request_redraw() { emit redraw_requested(); }
 
 void Context::set_ortho_layer(std::shared_ptr<TextureLayer> new_ortho_layer)
 {
-    assert(!is_alive()); // only set before init is called.
+    Q_ASSERT(!is_alive()); // only set before init is called.
     m_ortho_layer = std::move(new_ortho_layer);
 }*/
 

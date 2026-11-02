@@ -21,6 +21,7 @@
 
 #include <IconsFontAwesome5.h>
 #include <QJsonArray>
+#include <QtAssert>
 #include <imgui.h>
 #include <imnodes.h>
 #include <iomanip>
@@ -230,7 +231,7 @@ void NodeRenderer::rename(const std::string& new_name)
 
 int NodeRenderer::get_input_socket_id(const std::string& input_socket_name) const
 {
-    assert(m_node->has_input_socket(input_socket_name));
+    Q_ASSERT(m_node->has_input_socket(input_socket_name));
 
     for (size_t i = 0; i < m_node->input_sockets().size(); i++) {
         if (input_socket_name == m_node->input_sockets().at(i).name()) {
@@ -243,7 +244,7 @@ int NodeRenderer::get_input_socket_id(const std::string& input_socket_name) cons
 
 int NodeRenderer::get_output_socket_id(const std::string& output_socket_name) const
 {
-    assert(m_node->has_output_socket(output_socket_name));
+    Q_ASSERT(m_node->has_output_socket(output_socket_name));
 
     for (size_t i = 0; i < m_node->output_sockets().size(); i++) {
         if (output_socket_name == m_node->output_sockets().at(i).name()) {

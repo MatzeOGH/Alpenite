@@ -22,6 +22,7 @@
 #include "base_types.h"
 #include <QDebug>
 #include <QString>
+#include <QtAssert>
 #include <queue>
 #include <webgpu/base/util/string_cast.h>
 #include <webgpu/webgpu.h>
@@ -57,7 +58,7 @@ public:
     // count and offset in number of elements of size sizeof(T)
     void write(WGPUQueue queue, const T* data, size_t count = 1, size_t offset = 0)
     {
-        assert(count <= m_size);
+        Q_ASSERT(count <= m_size);
         wgpuQueueWriteBuffer(queue, m_handle, offset * sizeof(T), data, count * sizeof(T)); // takes size in bytes
     }
 

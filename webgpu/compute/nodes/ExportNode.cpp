@@ -22,13 +22,12 @@
 #include <QDebug>
 #include <QFile>
 #include <QTextStream>
-#include <assert.h>
 #include <filesystem>
 #include <limits>
 #include <memory>
-#include <nucleus/Raster.h>
 #include <nucleus/utils/geopng_decoder.h>
 #include <nucleus/utils/image_writer.h>
+#include <radix/raster.h>
 
 namespace webgpu_compute::nodes {
 
@@ -53,8 +52,8 @@ static void ensure_parent_dir(const std::string& file_path) { std::filesystem::c
 static void write_texture_file(const QByteArray& data, glm::uvec2 dims, const std::string& file_path)
 {
     const uint32_t bpp = static_cast<uint32_t>(data.size()) / (dims.x * dims.y);
-    nucleus::Raster<glm::u8vec4> raster(dims);
-    auto& buf = raster.buffer();
+    radix::Raster<glm::u8vec4> raster(dims);
+    auto buf = raster.buffer();
     for (uint32_t y = 0; y < dims.y; y++) {
         for (uint32_t x = 0; x < dims.x; x++) {
             const uint32_t idx = (y * dims.x + x) * bpp;
@@ -71,7 +70,7 @@ static void write_texture_file(const QByteArray& data, glm::uvec2 dims, const st
 
 static void write_buffer_file(const std::vector<uint32_t>& data, glm::uvec2 dims, const std::string& file_path)
 {
-    nucleus::Raster<float> raster(dims);
+    radix::Raster<float> raster(dims);
     for (size_t i = 0; i < data.size(); i++)
         raster.buffer()[i] = static_cast<float>(data[i]);
     ensure_parent_dir(file_path);

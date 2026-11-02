@@ -19,12 +19,12 @@
 
 #pragma once
 
+#include <expected>
 #include <filesystem>
 #include <glm/glm.hpp>
-#include <nucleus/Raster.h>
 #include <radix/geometry.h>
+#include <radix/raster.h>
 #include <string>
-#include <tl/expected.hpp>
 #include <vector>
 
 class QString;
@@ -45,17 +45,17 @@ std::vector<std::filesystem::path> possible_aabb_paths(const std::filesystem::pa
 // Parses a sidecar AABB .txt file describing the world-space extent of a geo-PNG.
 // The file contains exactly four lines: min_x, min_y, max_x, max_y
 // Returns the parsed AABB, or an error message on failure
-tl::expected<radix::geometry::Aabb<2, double>, std::string> load_aabb_from_file(const std::filesystem::path& file_path);
+std::expected<radix::geometry::Aabb<2, double>, std::string> load_aabb_from_file(const std::filesystem::path& file_path);
 
-// Encodes a Raster<float> as a geo-PNG: each float is clamped to
+// Encodes a radix::Raster<float> as a geo-PNG: each float is clamped to
 // [ENCODED_FLOAT_RANGE_MIN, ENCODED_FLOAT_RANGE_MAX], mapped to [0,1], packed
 // as a u32, and stored across the R,G,B,A channels of a u8 PNG.
-void write_encoded_float_png(const Raster<float>& data, const QString& filename);
+void write_encoded_float_png(const radix::Raster<float>& data, const QString& filename);
 
 // Scans an RGBA-encoded float image. Returns {min, max} of decoded values.
 // Determines whether its likely_encoded_float with the heuristic that either:
 //  - >= 1% of decoded float values are approx. 0.0
 //  - all decoded values share the same sign
-glm::vec2 scan_encoded_float_range(const Raster<glm::u8vec4>& image, bool& likely_encoded_float);
+glm::vec2 scan_encoded_float_range(const radix::Raster<glm::u8vec4>& image, bool& likely_encoded_float);
 
 } // namespace nucleus::utils::geopng

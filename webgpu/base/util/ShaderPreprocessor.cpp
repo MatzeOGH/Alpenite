@@ -17,6 +17,7 @@
  *****************************************************************************/
 #include "ShaderPreprocessor.h"
 
+#include <algorithm>
 #include <functional>
 #include <iostream>
 #include <regex>

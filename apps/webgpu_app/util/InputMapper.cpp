@@ -19,6 +19,7 @@
 #include "InputMapper.h"
 #include "nucleus/camera/Controller.h"
 #include <QDebug>
+#include <QtAssert>
 
 namespace webgpu_app {
 
@@ -156,7 +157,7 @@ void InputMapper::handle_mouse_button_event(const SDL_Event& event)
     const int button = event.button.button;
     const int action = (event.type == SDL_MOUSEBUTTONDOWN) ? SDL_PRESSED : SDL_RELEASED;
 
-    assert(button >= 0 && (size_t)button < m_buttonmap.size());
+    Q_ASSERT(button >= 0 && (size_t)button < m_buttonmap.size());
 
     if (m_gui_manager && m_gui_manager->want_capture_mouse())
         return;

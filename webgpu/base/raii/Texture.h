@@ -22,9 +22,11 @@
 #include "RawBuffer.h"
 #include "TextureView.h"
 #include "base_types.h"
-#include "nucleus/Raster.h"
 #include "nucleus/utils/ColourTexture.h"
 #include "nucleus/utils/ColourTexture3D.h"
+#include <QtAssert>
+
+#include <radix/raster.h>
 
 #include <webgpu/webgpu.h>
 
@@ -52,12 +54,13 @@ public:
 public:
     using GpuResource::GpuResource;
 
-    template <typename RasterElementT> void write(WGPUQueue queue, const nucleus::Raster<RasterElementT>& data, uint32_t layer = 0)
+    template <typename RasterElementT>
+    void write(WGPUQueue queue, const radix::Raster<RasterElementT>& data, uint32_t layer = 0)
     {
         // TODO maybe assert if RasterElementT and WGPUTextureFormat of this texture are compatible?
 
-        assert(static_cast<uint32_t>(data.width()) == m_descriptor.size.width);
-        assert(static_cast<uint32_t>(data.height()) == m_descriptor.size.height);
+        Q_ASSERT(static_cast<uint32_t>(data.width()) == m_descriptor.size.width);
+        Q_ASSERT(static_cast<uint32_t>(data.height()) == m_descriptor.size.height);
 
         WGPUTexelCopyTextureInfo texel_copy_texture_info {};
         texel_copy_texture_info.texture = m_handle;
@@ -72,7 +75,7 @@ public:
 
         WGPUExtent3D copy_extent { m_descriptor.size.width, m_descriptor.size.height, 1 };
 
-        wgpuQueueWriteTexture(queue, &texel_copy_texture_info, data.bytes(), uint32_t(data.size_in_bytes()), &texture_data_layout_info, &copy_extent);
+        wgpuQueueWriteTexture(queue, &texel_copy_texture_info, data.bytes().data(), uint32_t(data.bytes().size()), &texture_data_layout_info, &copy_extent);
     }
 
     void write(WGPUQueue queue, const nucleus::utils::ColourTexture& data, uint32_t layer = 0);
@@ -106,7 +109,7 @@ public:
         uint32_t bytes_per_extent_row = uint32_t(
             std::ceil(double(extent.x) * double(get_bytes_per_element(m_descriptor.format)) / double(BYTES_PER_ROW_PADDING)) * BYTES_PER_ROW_PADDING);
 
-        assert(bytes_per_extent_row * extent.y <= buffer.size_in_byte());
+        Q_ASSERT(bytes_per_extent_row * extent.y <= buffer.size_in_byte());
 
         WGPUTexelCopyTextureInfo source {};
         source.texture = m_handle;
@@ -145,7 +148,6 @@ public:
     size_t size_in_bytes() const;
     size_t bytes_per_row() const;
     size_t single_layer_size_in_bytes() const;
-
 };
 
 } // namespace webgpu::raii

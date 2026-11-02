@@ -46,13 +46,13 @@ void LoadTextureNode::run_impl()
     qDebug() << "loading texture from " << m_settings.file_path;
 
     auto path = QString::fromStdString(m_settings.file_path);
-    tl::expected<nucleus::Raster<glm::u8vec4>, QString> expected_image = nucleus::utils::image_loader::rgba8(path);
+    std::expected<radix::Raster<glm::u8vec4>, QString> expected_image = nucleus::utils::image_loader::rgba8(path);
     if (!expected_image.has_value()) {
         fail_run("Failed to load image file at " + m_settings.file_path + ": " + expected_image.error().toStdString());
         return;
     }
 
-    nucleus::Raster<glm::u8vec4> image = expected_image.value();
+    radix::Raster<glm::u8vec4> image = expected_image.value();
     m_output_texture = create_texture(m_ctx->device(), image.width(), image.height(), m_settings.format, m_settings.usage);
     m_output_texture->texture().write(m_ctx->queue(), image);
 

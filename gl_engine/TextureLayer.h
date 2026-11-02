@@ -20,10 +20,10 @@
 
 #include "UniformBuffer.h"
 #include <QObject>
-#include <nucleus/Raster.h>
 #include <nucleus/tile/DrawListGenerator.h>
 #include <nucleus/tile/GpuArrayHelper.h>
 #include <nucleus/tile/types.h>
+#include <radix/raster.h>
 
 namespace nucleus::camera {
 class Definition;

@@ -24,6 +24,8 @@
 #include "overlay/OverlayRenderer.h"
 #include "webgpu/base/raii/RenderPassEncoder.h"
 #include "webgpu/engine/Context.h"
+#include <QtAssert>
+
 #include <ktx.h>
 #include <webgpu/base/RenderResourceRegistry.h>
 #include <webgpu/base/util/VertexBufferInfo.h>
@@ -47,7 +49,7 @@ void Window::set_context(Context* context)
 
 void Window::initialise_gpu()
 {
-    assert(m_context != nullptr); // just make sure that context is set
+    Q_ASSERT(m_context != nullptr); // just make sure that context is set
 
     create_buffers();
 
