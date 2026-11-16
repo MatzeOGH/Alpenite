@@ -64,6 +64,9 @@ public:
     [[nodiscard]] webgpu_engine::Window* get_webgpu_window() { return m_webgpu_window.get(); }
     [[nodiscard]] RenderingContext* get_rendering_context() { return m_context.get(); }
     [[nodiscard]] nucleus::camera::Controller* get_camera_controller() { return m_camera_controller.get(); }
+    [[nodiscard]] webgpu_engine::AlpeniteRenderer* get_alpenite_renderer() { return m_alpenite_renderer.get(); }
+
+    bool alpenite_mode() const { return m_use_alpenite; }
 
 signals:
     void update_camera_requested();
@@ -77,7 +80,7 @@ private:
     SDL_Window* m_sdl_window;
     std::unique_ptr<webgpu_engine::Window> m_webgpu_window;
     std::unique_ptr<webgpu_engine::AlpeniteRenderer> m_alpenite_renderer;
-    bool m_use_alpenite = false;
+    bool m_use_alpenite = false; // alpenite mode
     std::unique_ptr<nucleus::camera::Controller> m_camera_controller;
     std::unique_ptr<RenderingContext> m_context;
 

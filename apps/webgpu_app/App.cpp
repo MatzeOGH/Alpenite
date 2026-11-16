@@ -196,6 +196,11 @@ void App::render()
 {
     m_cputimer->start();
 
+    if (m_use_alpenite)
+    {
+        m_alpenite_renderer->advance(0.1);
+    }
+
     // Do nothing, this checks for ongoing asynchronous operations and call their callbacks
 
     WGPUSurfaceTexture surface_texture;
@@ -347,10 +352,14 @@ void App::start()
         m_alpenite_renderer = std::make_unique<webgpu_engine::AlpeniteRenderer>();
         m_alpenite_renderer->set_context(m_context->engine_context());
         m_alpenite_renderer->initialise_gpu();
-        connect(m_camera_controller.get(), &nucleus::camera::Controller::definition_changed, m_alpenite_renderer.get(),
-            &webgpu_engine::AlpeniteRenderer::update_camera);
 
-        m_camera_controller->key_press(QKeyCombination(Qt::Key_2)); // force to free fight camera
+        // Aplenite uses its own ECEF camera system
+        connect(m_input_mapper.get(), &InputMapper::mouse_moved, m_alpenite_renderer.get(), &webgpu_engine::AlpeniteRenderer::mouse_move);
+        connect(m_input_mapper.get(), &InputMapper::mouse_pressed, m_alpenite_renderer.get(), &webgpu_engine::AlpeniteRenderer::mouse_press);
+        connect(m_input_mapper.get(), &InputMapper::wheel_turned, m_alpenite_renderer.get(), &webgpu_engine::AlpeniteRenderer::wheel_turn);
+        connect(m_input_mapper.get(), &InputMapper::key_pressed, m_alpenite_renderer.get(), &webgpu_engine::AlpeniteRenderer::key_press);
+        connect(m_input_mapper.get(), &InputMapper::key_released, m_alpenite_renderer.get(), &webgpu_engine::AlpeniteRenderer::key_release);
+
         m_force_repaint = true;
     }
 

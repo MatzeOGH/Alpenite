@@ -32,6 +32,8 @@ namespace webgpu_app {
 CameraPanel::CameraPanel(App* terrain_renderer)
     : m_terrain_renderer(terrain_renderer)
 {
+    if( terrain_renderer->alpenite_mode()) return;
+
     // Lets build a vector of std::string...
     const auto position_storage = nucleus::camera::PositionStorage::instance();
     const QList<QString> position_storage_list = position_storage->getPositionList();
@@ -42,6 +44,25 @@ CameraPanel::CameraPanel(App* terrain_renderer)
 
 void CameraPanel::draw_panel()
 {
+    if(m_terrain_renderer->alpenite_mode())
+    {
+        if (ImGui::CollapsingHeader(ICON_FA_CAMERA " Camera")) {
+
+            
+            glm::dvec3 eye, fwd, right, up;
+            webgpu_engine::camera_eye(m_terrain_renderer->get_alpenite_renderer()->m_camera, eye, fwd, right, up);
+
+            double lat, lon, alt;
+            webgpu_engine::ecef_to_geodetic(eye, lat, lon, alt);
+            ImGui::Text("ECEF   %.2f  %.2f  %.2f", eye.x, eye.y, eye.z);
+            ImGui::Text("eye    %.6f N  %.6f E  %.1f m", glm::degrees(lat), glm::degrees(lon), alt);
+
+        }
+
+        return;
+    }
+
+
     if (ImGui::CollapsingHeader(ICON_FA_CAMERA " Camera")) {
         if (ImGui::BeginCombo("Preset", m_camera_preset_names[m_selected_camera_preset].c_str())) {
             for (size_t n = 0; n < m_camera_preset_names.size(); n++) {
