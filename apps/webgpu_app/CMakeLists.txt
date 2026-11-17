@@ -38,6 +38,7 @@ set(SOURCES
     ui/TimingPanel.h ui/TimingPanel.cpp
     ui/RenderGraphPanel.h ui/RenderGraphPanel.cpp
     ui/CameraPanel.h ui/CameraPanel.cpp
+    ui/AlpenitePanel.h ui/AlpenitePanel.cpp
     ui/AppPanel.h ui/AppPanel.cpp
     ui/ShadingPanel.h ui/ShadingPanel.cpp
     ui/AboutPanel.h ui/AboutPanel.cpp

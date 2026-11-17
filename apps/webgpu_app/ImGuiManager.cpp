@@ -43,6 +43,7 @@
 #include "track/TrackPanel.h"
 #include "ui/AboutPanel.h"
 #include "ui/AppPanel.h"
+#include "ui/AlpenitePanel.h"
 #include "ui/CameraPanel.h"
 #include "ui/CompassPanel.h"
 #include "ui/LogoPanel.h"
@@ -107,6 +108,7 @@ void ImGuiManager::init(
     SearchPanel& search_panel = static_cast<SearchPanel&>(**(m_panels.end() - 1));
     m_panels.push_back(std::make_unique<TimingPanel>(m_terrain_renderer));
     m_panels.push_back(std::make_unique<CameraPanel>(m_terrain_renderer));
+    m_panels.push_back(std::make_unique<AlpenitePanel>(m_terrain_renderer));
     m_panels.push_back(std::make_unique<AppPanel>(m_terrain_renderer));
     m_panels.push_back(std::make_unique<CloudPanel>(engine_ctx, rc->clouds_manager(), engine_ctx->cloud_renderer()));
     m_panels.push_back(std::make_unique<AtmospherePanel>(engine_ctx));
